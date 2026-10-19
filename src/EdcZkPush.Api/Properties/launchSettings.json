@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "EdcZkPush.Api": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "launchUrl": "swagger",
+      "applicationUrl": "http://0.0.0.0:8088",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}
