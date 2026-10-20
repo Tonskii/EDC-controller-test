@@ -23,6 +23,7 @@ copy the console block of that command (yellow "sending" + green/red "result").
 0.1  Is the controller connected and polling?
      GET /api/devices
      → "heartbeats" must keep increasing when you execute it again after a few seconds.
+     → "capabilitiesSource" should be "registration" or "saved registry file" (not "unknown").
 
 0.2  How to check any command (use after every step)
      GET /api/commands/{id}
@@ -109,27 +110,54 @@ copy the console block of that command (yellow "sending" + green/red "result").
 
 
 ---------------------------------------------------------------------
- STEP 4 — GIVE ACCESS (doors 1–4 during time rule 2)
+ STEP 4 — GIVE ACCESS (doors 1–4 during time rule 2) — WITH DevID
 ---------------------------------------------------------------------
+     The C3-400 Plus reports AccSupportFunList[26]=1 = "tables have a DevID field", so the
+     userauthorize row needs DevID. DevID = the controller's own device ID = 1.
+     Send it explicitly (does not depend on what the server remembers about the controller):
+
      PUT /api/access
 {
   "sn": "AJU8261200103",
   "pin": "1001",
   "doors": [1, 2, 3, 4],
-  "timezoneId": 2
+  "timezoneId": 2,
+  "includeDevId": "Yes",
+  "devId": 1
 }
-     Expected (this controller reports AccSupportFunList[26]=1 → DevID is added):
+     Expected:
      DATA UPDATE userauthorize Pin=1001[TAB]AuthorizeTimezoneId=2[TAB]AuthorizeDoorId=15[TAB]DevID=1
+     The answer's "notes" says why DevID was / was not sent.
 
-     If it fails with -621 / -11, repeat without DevID:
+     How includeDevId works:
+       "Yes"  → always adds DevID=<devId>          (devId empty → 1, appsettings Push:DefaultDevId)
+       "Auto" → adds DevID only if the controller reported bit 26 when it registered. The server now
+                saves that in ./devices/AJU8261200103.registry.txt, so it also works after a server
+                restart. If the controller is unknown, the note says "DevID: NOT sent".
+       "No"   → never adds it
+       Giving "devId" alone also forces it to be sent.
+
+     Other door combinations (always with DevID):
+       only doors 1+2:  "doors": [1, 2]    → AuthorizeDoorId=3
+       only door 3:     "doors": [3]       → AuthorizeDoorId=4
+       24/7 rule:       "timezoneId": 1
+
+     Several users at once — PUT /api/access/batch
 {
   "sn": "AJU8261200103",
-  "pin": "1001",
-  "doors": [1, 2, 3, 4],
-  "timezoneId": 2,
-  "includeDevId": "No"
+  "items": [
+    { "pin": "1001", "doors": [1, 2], "timezoneId": 2, "includeDevId": "Yes", "devId": 1 },
+    { "pin": "1002", "doors": [3, 4], "timezoneId": 2, "includeDevId": "Yes", "devId": 1 }
+  ]
 }
-     Only doors 1+2:  "doors": [1, 2]   (mask 3)
+     Expected (one command, records separated by LF):
+     DATA UPDATE userauthorize Pin=1001[TAB]AuthorizeTimezoneId=2[TAB]AuthorizeDoorId=3[TAB]DevID=1
+       [LF]Pin=1002[TAB]AuthorizeTimezoneId=2[TAB]AuthorizeDoorId=12[TAB]DevID=1
+     (PIN 1002 must exist as a user first — add it like step 2.)
+
+     Which tables use DevID: per the protocol only the door/device tables (userauthorize, first-card and
+     multi-card opening, DoorParameters, ReaderParameters, …). user, mulcarduser, timezone and holiday
+     have NO DevID field — steps 1–3 stay exactly as they are.
 
 
 ---------------------------------------------------------------------
@@ -158,7 +186,7 @@ copy the console block of that command (yellow "sending" + green/red "result").
 
 6.3  Access         POST /api/access/query       sn = AJU8261200103
      Expected:  DATA QUERY tablename=userauthorize,fielddesc=*,filter=*
-     Look for:  pin=1001 authorizetimezoneid=2 authorizedoorid=15
+     Look for:  pin=1001 authorizetimezoneid=2 authorizedoorid=15 devid=1
 
 6.4  Time rules     POST /api/timerules/query    sn = AJU8261200103
      Expected:  DATA QUERY tablename=timezone,fielddesc=*,filter=*
@@ -185,6 +213,14 @@ copy the console block of that command (yellow "sending" + green/red "result").
 ---------------------------------------------------------------------
 7.1  Access         DELETE /api/access/{pin}         pin = 1001, sn = AJU8261200103
      Expected:  DATA DELETE userauthorize Pin=1001
+     (Pin is the delete condition and removes the row for every DevID. If the controller answers
+      an error, send it with DevID through POST /api/raw:
+{
+  "sn": "AJU8261200103",
+  "command": "DATA DELETE userauthorize Pin=1001[TAB]DevID=1",
+  "label": "Delete access 1001 with DevID"
+}
+     )
 
 7.2  Card           DELETE /api/cards/{pin}          pin = 1001, cardNo = 12345678, sn = AJU8261200103
      Expected:  DATA DELETE mulcarduser Pin=1001[TAB]CardNo=bc614e

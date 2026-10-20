@@ -48,6 +48,12 @@ public sealed class PushOptions
     /// <summary>Time zone of the site (IANA or Windows id).</summary>
     public string TimeZone { get; set; } = "Europe/Ljubljana";
 
+    /// <summary>DevID sent in userauthorize when the request does not give one (1 = the controller itself).</summary>
+    public int DefaultDevId { get; set; } = 1;
+
+    /// <summary>Folder where each controller's registry message is saved, so capabilities survive a server restart. Empty = off.</summary>
+    public string DeviceCacheFolder { get; set; } = "devices";
+
     /// <summary>rtdata?type=time answer: "gmt" (per protocol doc) or "local".</summary>
     public string RtDataTimeMode { get; set; } = "gmt";
 

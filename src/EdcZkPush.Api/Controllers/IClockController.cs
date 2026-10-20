@@ -94,7 +94,9 @@ public sealed class IClockController : ControllerBase
         var session = Touch(SN);
         session.RegistryBody = body;
         session.Capabilities = DeviceCapabilities.Parse(body);
+        session.CapabilitiesFromCache = false;
         session.RegisteredAt = DateTimeOffset.Now;
+        _devices.SaveRegistry(session);
         if (string.IsNullOrEmpty(session.RegistryCode))
         {
             session.RegistryCode = DeviceStore.NewCode(16);

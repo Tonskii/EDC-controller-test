@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Options;
 
 namespace EdcZkPush.Protocol;
 
@@ -23,6 +24,9 @@ public sealed class DeviceSession
     public long RtStateCount;
     public string? LastInfo { get; set; }
 
+    /// <summary>True when the capabilities came from the saved registry file, not from a registration since server start.</summary>
+    public bool CapabilitiesFromCache { get; set; }
+
     /// <summary>Token per the document: MD5(RegistryCode + SN + SessionID). Real C3-400 Plus firmware uses MD5(RegistryCode + SN + cookie timestamp) instead.</summary>
     public string ExpectedToken
     {
@@ -40,10 +44,16 @@ public sealed class DeviceSession
 public sealed class DeviceStore
 {
     private readonly ConcurrentDictionary<string, DeviceSession> _devices = new(StringComparer.OrdinalIgnoreCase);
+    private readonly string _cacheFolder;
+
+    public DeviceStore(IOptions<PushOptions> options)
+    {
+        _cacheFolder = options.Value.DeviceCacheFolder;
+    }
 
     public DeviceSession Touch(string sn, string? remoteIp)
     {
-        var s = _devices.GetOrAdd(sn.Trim(), key => new DeviceSession { SerialNumber = key });
+        var s = _devices.GetOrAdd(sn.Trim(), CreateFromCache);
         s.LastSeen = DateTimeOffset.Now;
         if (!string.IsNullOrEmpty(remoteIp))
         {
@@ -53,7 +63,60 @@ public sealed class DeviceStore
         return s;
     }
 
-    public DeviceSession? Get(string sn) => _devices.TryGetValue(sn.Trim(), out var s) ? s : null;
+    public DeviceSession? Get(string sn)
+    {
+        sn = sn.Trim();
+        if (_devices.TryGetValue(sn, out var s))
+        {
+            return s;
+        }
+
+        return File.Exists(CachePath(sn)) ? _devices.GetOrAdd(sn, CreateFromCache) : null;
+    }
+
+    /// <summary>Remember the registry body so capability-based decisions (DevID, card table, dates) survive a server restart.</summary>
+    public void SaveRegistry(DeviceSession session)
+    {
+        if (string.IsNullOrWhiteSpace(_cacheFolder) || string.IsNullOrEmpty(session.RegistryBody))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(_cacheFolder);
+            File.WriteAllText(CachePath(session.SerialNumber), session.RegistryBody);
+        }
+        catch (IOException)
+        {
+        }
+    }
+
+    private DeviceSession CreateFromCache(string sn)
+    {
+        var session = new DeviceSession { SerialNumber = sn };
+        try
+        {
+            var path = CachePath(sn);
+            if (!string.IsNullOrWhiteSpace(_cacheFolder) && File.Exists(path))
+            {
+                session.RegistryBody = File.ReadAllText(path);
+                session.Capabilities = DeviceCapabilities.Parse(session.RegistryBody);
+                session.CapabilitiesFromCache = true;
+            }
+        }
+        catch (IOException)
+        {
+        }
+
+        return session;
+    }
+
+    private string CachePath(string sn)
+    {
+        var safe = string.Concat(sn.Where(char.IsLetterOrDigit));
+        return Path.Combine(_cacheFolder ?? "", $"{safe}.registry.txt");
+    }
 
     public IReadOnlyList<DeviceSession> All() => _devices.Values.OrderBy(d => d.SerialNumber).ToList();
 

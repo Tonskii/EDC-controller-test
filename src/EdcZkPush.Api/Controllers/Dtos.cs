@@ -111,9 +111,16 @@ public sealed class AccessRequest
     /// <example>1</example>
     public int TimezoneId { get; set; } = 1;
 
-    /// <summary>Auto = include DevID=1 only when AccSupportFunList[26]=1.</summary>
+    /// <summary>
+    /// Yes = always send DevID, No = never, Auto = send it when the controller reported AccSupportFunList[26]=1
+    /// at registration (the C3-400 Plus does). Giving a devId value also forces it to be sent.
+    /// </summary>
     [DefaultValue(IncludeOption.Auto)]
     public IncludeOption IncludeDevId { get; set; } = IncludeOption.Auto;
+
+    /// <summary>Value for DevID. Empty = Push:DefaultDevId from appsettings (1 = the controller itself).</summary>
+    /// <example>1</example>
+    public int? DevId { get; set; }
 
     /// <summary>Access validity (only sent when AccSupportFunList[62]=1, or when forced with IncludeValidity=Yes).</summary>
     public DateTime? ValidFrom { get; set; }

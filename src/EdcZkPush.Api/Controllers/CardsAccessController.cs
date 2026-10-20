@@ -117,9 +117,13 @@ public sealed class AccessController : ApiBase
 
     /// <summary>Give a user access to doors during a time rule.</summary>
     /// <remarks>
-    /// All 4 doors of a C3-400 Plus, 24/7 rule:
+    /// All 4 doors of a C3-400 Plus, time rule 2, DevID (C3-400 Plus reports AccSupportFunList[26]=1):
     ///
-    ///     C:114:DATA UPDATE userauthorize Pin=1001[TAB]AuthorizeTimezoneId=1[TAB]AuthorizeDoorId=15
+    ///     {"pin":"1001","doors":[1,2,3,4],"timezoneId":2,"includeDevId":"Yes","devId":1}
+    ///     C:114:DATA UPDATE userauthorize Pin=1001[TAB]AuthorizeTimezoneId=2[TAB]AuthorizeDoorId=15[TAB]DevID=1
+    ///
+    /// includeDevId: Auto = add DevID when the controller reported support at registration (remembered across
+    /// server restarts in ./devices), Yes = always, No = never. devId sets the value (default Push:DefaultDevId = 1).
     ///
     /// AuthorizeDoorId is a bit mask: door1=1, door2=2, door3=4, door4=8 (15 = all). The old API rejected values above 3
     /// and the old bulk push always sent 3 (doors 1+2 only).
@@ -167,7 +171,7 @@ public sealed class AccessController : ApiBase
         return Done(s, preview, new[] { ("Query access", SecurityCommands.Query("userauthorize")) });
     }
 
-    private static (string Label, string Text) Build(AccessRequest r, DeviceCapabilities caps, List<string> notes)
+    private (string Label, string Text) Build(AccessRequest r, DeviceCapabilities caps, List<string> notes)
     {
         ValidatePin(r.Pin, caps);
         if (r.TimezoneId < 1) throw new ArgumentException("TimezoneId must be 1 or higher.");
@@ -175,12 +179,34 @@ public sealed class AccessController : ApiBase
         var mask = DoorMask(r.Doors, r.DoorMask, caps);
         notes.Add($"AuthorizeDoorId={mask} → doors {string.Join(",", Enumerable.Range(1, 8).Where(d => (mask & (1 << (d - 1))) != 0))}.");
 
-        int? devId = r.IncludeDevId switch
+        var devIdValue = r.DevId ?? Options.DefaultDevId;
+        int? devId;
+        if (r.IncludeDevId == IncludeOption.No)
         {
-            IncludeOption.Yes => 1,
-            IncludeOption.No => null,
-            _ => caps.SupportsDevIdField == true ? 1 : null
-        };
+            devId = null;
+            notes.Add("DevID: not sent (includeDevId=No).");
+        }
+        else if (r.IncludeDevId == IncludeOption.Yes || r.DevId.HasValue)
+        {
+            devId = devIdValue;
+            notes.Add($"DevID={devId}: sent because {(r.DevId.HasValue ? "devId was given" : "includeDevId=Yes")}.");
+        }
+        else if (caps.SupportsDevIdField == true)
+        {
+            devId = devIdValue;
+            notes.Add($"DevID={devId}: sent automatically (controller reported AccSupportFunList[26]=1).");
+        }
+        else if (caps.SupportsDevIdField == null)
+        {
+            devId = null;
+            notes.Add("DevID: NOT sent — this controller's capabilities are unknown (it has not registered since the server started " +
+                      "and no saved registry was found). Set includeDevId=Yes or devId=1, or power-cycle the controller.");
+        }
+        else
+        {
+            devId = null;
+            notes.Add("DevID: not sent (controller reported AccSupportFunList[26]=0).");
+        }
 
         long? start = null, end = null;
         var sendValidity = r.IncludeValidity switch

@@ -111,6 +111,7 @@ public sealed class DevicesController : ApiBase
         pushVersion = d.Capabilities?.PushVersion ?? d.PushVerFromInit,
         doors = d.Capabilities?.LockCount,
         registered = d.RegisteredAt,
+        capabilitiesSource = d.Capabilities == null ? "unknown (not registered yet)" : d.CapabilitiesFromCache ? "saved registry file" : "registration",
         handshakeComplete = d.ConfigDownloadedAt,
         lastSeen = d.LastSeen,
         heartbeats = d.HeartbeatCount,

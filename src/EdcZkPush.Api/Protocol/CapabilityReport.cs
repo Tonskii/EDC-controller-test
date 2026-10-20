@@ -39,8 +39,8 @@ public static class CapabilityReport
         yield return $"Doors: {doors} → userauthorize AuthorizeDoorId bit mask 1..{(1 << doors) - 1} (old server only allowed 1..3).";
 
         yield return c.SupportsDevIdField == true
-            ? "userauthorize: AccSupportFunList[26]=1 → DevID=1 will be added."
-            : "userauthorize: DevID field not supported → omitted.";
+            ? $"userauthorize: AccSupportFunList[26]=1 → DevID={opt.DefaultDevId} will be added automatically (includeDevId=Auto)."
+            : "userauthorize: DevID field not supported → omitted unless includeDevId=Yes.";
 
         if (c.SupportsAccessLevelValidity == true)
         {
