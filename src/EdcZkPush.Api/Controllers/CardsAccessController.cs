@@ -119,11 +119,12 @@ public sealed class AccessController : ApiBase
     /// <remarks>
     /// All 4 doors of a C3-400 Plus, time rule 2, DevID (C3-400 Plus reports AccSupportFunList[26]=1):
     ///
-    ///     {"pin":"1001","doors":[1,2,3,4],"timezoneId":2,"includeDevId":"Yes","devId":1}
-    ///     C:114:DATA UPDATE userauthorize Pin=1001[TAB]AuthorizeTimezoneId=2[TAB]AuthorizeDoorId=15[TAB]DevID=1
+    ///     {"pin":"1001","doors":[1,2,3,4],"timezoneId":2,"includeDevId":"Yes"}
+    ///     C:114:DATA UPDATE userauthorize Pin=1001[TAB]AuthorizeTimezoneId=2[TAB]AuthorizeDoorId=15[TAB]DevID=190
     ///
     /// includeDevId: Auto = add DevID when the controller reported support at registration (remembered across
-    /// server restarts in ./devices), Yes = always, No = never. devId sets the value (default Push:DefaultDevId = 1).
+    /// server restarts in ./devices), Yes = always, No = never.
+    /// The VALUE is per controller: devId in the request → PUT /api/devices/{sn}/devid → appsettings Push:DevIds[sn].
     ///
     /// AuthorizeDoorId is a bit mask: door1=1, door2=2, door3=4, door4=8 (15 = all). The old API rejected values above 3
     /// and the old bulk push always sent 3 (doors 1+2 only).
@@ -134,7 +135,7 @@ public sealed class AccessController : ApiBase
         var (sn, caps, error) = Target(request.Sn, preview);
         if (error != null) return error;
         var notes = new List<string>();
-        return Done(sn, preview, new[] { Build(request, caps, notes) }, notes);
+        return Done(sn, preview, new[] { Build(sn, request, caps, notes) }, notes);
     }
 
     /// <summary>Set access for many users in one command.</summary>
@@ -147,7 +148,7 @@ public sealed class AccessController : ApiBase
 
         var notes = new List<string>();
         const string prefix = "DATA UPDATE userauthorize ";
-        var records = request.Items.Select(i => Build(i, caps, notes).Text[prefix.Length..]).ToList();
+        var records = request.Items.Select(i => Build(sn, i, caps, notes).Text[prefix.Length..]).ToList();
         return Done(sn, preview, new[] { ($"Set access for {records.Count} users", SecurityCommands.Update("userauthorize", records)) }, notes.Distinct());
     }
 
@@ -171,7 +172,7 @@ public sealed class AccessController : ApiBase
         return Done(s, preview, new[] { ("Query access", SecurityCommands.Query("userauthorize")) });
     }
 
-    private (string Label, string Text) Build(AccessRequest r, DeviceCapabilities caps, List<string> notes)
+    private (string Label, string Text) Build(string sn, AccessRequest r, DeviceCapabilities caps, List<string> notes)
     {
         ValidatePin(r.Pin, caps);
         if (r.TimezoneId < 1) throw new ArgumentException("TimezoneId must be 1 or higher.");
@@ -179,33 +180,51 @@ public sealed class AccessController : ApiBase
         var mask = DoorMask(r.Doors, r.DoorMask, caps);
         notes.Add($"AuthorizeDoorId={mask} → doors {string.Join(",", Enumerable.Range(1, 8).Where(d => (mask & (1 << (d - 1))) != 0))}.");
 
-        var devIdValue = r.DevId ?? Options.DefaultDevId;
-        int? devId;
+        bool include;
+        string why;
         if (r.IncludeDevId == IncludeOption.No)
         {
-            devId = null;
-            notes.Add("DevID: not sent (includeDevId=No).");
+            include = false;
+            why = "includeDevId=No";
         }
         else if (r.IncludeDevId == IncludeOption.Yes || r.DevId.HasValue)
         {
-            devId = devIdValue;
-            notes.Add($"DevID={devId}: sent because {(r.DevId.HasValue ? "devId was given" : "includeDevId=Yes")}.");
+            include = true;
+            why = r.DevId.HasValue ? "devId was given" : "includeDevId=Yes";
         }
         else if (caps.SupportsDevIdField == true)
         {
-            devId = devIdValue;
-            notes.Add($"DevID={devId}: sent automatically (controller reported AccSupportFunList[26]=1).");
+            include = true;
+            why = "controller reported AccSupportFunList[26]=1";
         }
         else if (caps.SupportsDevIdField == null)
         {
-            devId = null;
-            notes.Add("DevID: NOT sent — this controller's capabilities are unknown (it has not registered since the server started " +
-                      "and no saved registry was found). Set includeDevId=Yes or devId=1, or power-cycle the controller.");
+            include = false;
+            why = "controller capabilities unknown (not registered since server start, no saved registry) — set includeDevId=Yes";
         }
         else
         {
-            devId = null;
-            notes.Add("DevID: not sent (controller reported AccSupportFunList[26]=0).");
+            include = false;
+            why = "controller reported AccSupportFunList[26]=0";
+        }
+
+        int? devId = null;
+        if (include)
+        {
+            var (value, source) = ResolveDevId(sn, r.DevId);
+            if (value == null)
+            {
+                throw new ArgumentException(
+                    $"DevID is needed ({why}) but unknown for controller {sn}. Give \"devId\" in the request, " +
+                    $"or set it once with PUT /api/devices/{sn}/devid?value=..., or add it to appsettings Push:DevIds.");
+            }
+
+            devId = value;
+            notes.Add($"DevID={devId} (from {source}); sent because {why}.");
+        }
+        else
+        {
+            notes.Add($"DevID: not sent ({why}).");
         }
 
         long? start = null, end = null;

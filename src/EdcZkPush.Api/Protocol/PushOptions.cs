@@ -48,8 +48,14 @@ public sealed class PushOptions
     /// <summary>Time zone of the site (IANA or Windows id).</summary>
     public string TimeZone { get; set; } = "Europe/Ljubljana";
 
-    /// <summary>DevID sent in userauthorize when the request does not give one (1 = the controller itself).</summary>
-    public int DefaultDevId { get; set; } = 1;
+    /// <summary>
+    /// DevID per controller serial number, e.g. { "AJU8261200103": 190 }. Every controller has its own DevID,
+    /// so this (or PUT /api/devices/{sn}/devid) must be filled in for each one.
+    /// </summary>
+    public Dictionary<string, int> DevIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Last-resort DevID when nothing is known for the controller. 0 = refuse to guess (command is rejected with a clear message).</summary>
+    public int DefaultDevId { get; set; } = 0;
 
     /// <summary>Folder where each controller's registry message is saved, so capabilities survive a server restart. Empty = off.</summary>
     public string DeviceCacheFolder { get; set; } = "devices";

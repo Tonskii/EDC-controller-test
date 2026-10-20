@@ -469,8 +469,14 @@ public sealed class IClockController : ControllerBase
             return;
         }
 
+        if (session.TokenNoteShown)
+        {
+            return;
+        }
+
+        session.TokenNoteShown = true;
         HttpContext.Note($"Cookie token {token} matches neither MD5(RegistryCode+SN+timestamp) nor MD5(RegistryCode+SN+SessionID). " +
-                         "Not enforced — informational only (server restarted with a new RegistryCode?).");
+                         "Not enforced — informational only, shown once (server restarted with a new RegistryCode?).");
     }
 
     /// <summary>The cookie timestamp is the controller's own clock: warn when it is far from server time.</summary>

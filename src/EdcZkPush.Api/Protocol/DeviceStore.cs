@@ -24,6 +24,12 @@ public sealed class DeviceSession
     public long RtStateCount;
     public string? LastInfo { get; set; }
 
+    /// <summary>DevID set at runtime (PUT /api/devices/{sn}/devid), saved in the devices folder.</summary>
+    public int? DevId { get; set; }
+
+    /// <summary>The "unknown cookie token" note is printed once per session, not on every poll.</summary>
+    public bool TokenNoteShown { get; set; }
+
     /// <summary>True when the capabilities came from the saved registry file, not from a registration since server start.</summary>
     public bool CapabilitiesFromCache { get; set; }
 
@@ -92,11 +98,43 @@ public sealed class DeviceStore
         }
     }
 
+    public void SaveDevId(DeviceSession session)
+    {
+        if (string.IsNullOrWhiteSpace(_cacheFolder))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(_cacheFolder);
+            var path = DevIdPath(session.SerialNumber);
+            if (session.DevId.HasValue)
+            {
+                File.WriteAllText(path, session.DevId.Value.ToString());
+            }
+            else if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+        }
+    }
+
     private DeviceSession CreateFromCache(string sn)
     {
         var session = new DeviceSession { SerialNumber = sn };
         try
         {
+            var devIdPath = DevIdPath(sn);
+            if (!string.IsNullOrWhiteSpace(_cacheFolder) && File.Exists(devIdPath) &&
+                int.TryParse(File.ReadAllText(devIdPath).Trim(), out var devId))
+            {
+                session.DevId = devId;
+            }
+
             var path = CachePath(sn);
             if (!string.IsNullOrWhiteSpace(_cacheFolder) && File.Exists(path))
             {
@@ -111,6 +149,8 @@ public sealed class DeviceStore
 
         return session;
     }
+
+    private string DevIdPath(string sn) => Path.Combine(_cacheFolder ?? "", $"{string.Concat(sn.Where(char.IsLetterOrDigit))}.devid.txt");
 
     private string CachePath(string sn)
     {

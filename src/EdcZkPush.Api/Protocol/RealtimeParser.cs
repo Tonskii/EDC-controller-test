@@ -66,7 +66,12 @@ public static class RealtimeParser
             doors.Add($"D{door}: {s}, relay {r}{(a.Length > 0 ? ", ALARM " + a : "")}");
         }
 
-        return $"STATE at {time} | {string.Join(" | ", doors)}";
+        // C3-400 Plus firmware 19.x sends a longer format (sensor=10 chars, relay=6, door=..) than the document;
+        // the decode above follows the document, so the raw values are shown too.
+        var raw = string.Join(" ", f.Where(kv => !kv.Key.Equals("time", StringComparison.OrdinalIgnoreCase) &&
+                                                  !kv.Key.Equals("sn", StringComparison.OrdinalIgnoreCase))
+                                    .Select(kv => $"{kv.Key}={kv.Value}"));
+        return $"STATE at {time} | {string.Join(" | ", doors)} | raw: {raw}";
     }
 
     private static string SensorState(string? sensorHex, int door)

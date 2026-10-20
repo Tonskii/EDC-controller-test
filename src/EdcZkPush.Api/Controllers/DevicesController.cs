@@ -22,6 +22,12 @@ public sealed class DevicesController : ApiBase
     [HttpGet("devices")]
     public IActionResult List() => Ok(Devices.All().Select(Summary));
 
+    private object Summary(DeviceSession d)
+    {
+        var (devId, source) = ResolveDevId(d.SerialNumber, null);
+        return new { device = SummaryCore(d), devId, devIdSource = source };
+    }
+
     /// <summary>One controller: handshake state, raw registry values and what they mean for the commands.</summary>
     [HttpGet("devices/{sn}")]
     public IActionResult Get(string sn)
@@ -48,6 +54,21 @@ public sealed class DevicesController : ApiBase
         Ok(_log.Recent(sn, 1000)
             .Where(r => includeHeartbeat || r.Kind is not (TrafficKind.Heartbeat or TrafficKind.RtState))
             .Take(take));
+
+    /// <summary>
+    /// Store the DevID of a controller (each controller has its own; AJU8261200103 = 190). Saved in ./devices and used by
+    /// PUT /api/access whenever the request has no devId. value empty = remove the stored value.
+    /// </summary>
+    [HttpPut("devices/{sn}/devid")]
+    public IActionResult SetDevId(string sn, [FromQuery] int? value)
+    {
+        if (value is <= 0) return BadRequest(new { error = "DevID must be a positive number." });
+        var d = Devices.Touch(sn, null);
+        d.DevId = value;
+        Devices.SaveDevId(d);
+        var (effective, source) = ResolveDevId(sn, null);
+        return Ok(new { serialNumber = d.SerialNumber, devId = effective, source });
+    }
 
     /// <summary>Cancel all queued (not yet sent) commands of a controller.</summary>
     [HttpDelete("devices/{sn}/queue")]
@@ -101,7 +122,7 @@ public sealed class DevicesController : ApiBase
         return Ok(o);
     }
 
-    private static object Summary(DeviceSession d) => new
+    private static object SummaryCore(DeviceSession d) => new
     {
         serialNumber = d.SerialNumber,
         remoteIp = d.RemoteIp,

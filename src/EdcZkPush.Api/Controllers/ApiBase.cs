@@ -201,6 +201,20 @@ public abstract class ApiBase : ControllerBase
         return value;
     }
 
+    /// <summary>
+    /// DevID for a controller: request value → PUT /api/devices/{sn}/devid → appsettings Push:DevIds[sn] → Push:DefaultDevId.
+    /// Returns null when none is known (DefaultDevId = 0).
+    /// </summary>
+    protected (int? Value, string Source) ResolveDevId(string sn, int? requested)
+    {
+        if (requested.HasValue) return (requested, "request devId");
+        var session = Devices.Get(sn);
+        if (session?.DevId is { } fromApi) return (fromApi, "PUT /api/devices/{sn}/devid");
+        if (Options.DevIds.TryGetValue(sn, out var fromConfig)) return (fromConfig, "appsettings Push:DevIds");
+        if (Options.DefaultDevId > 0) return (Options.DefaultDevId, "appsettings Push:DefaultDevId");
+        return (null, "unknown");
+    }
+
     protected static bool CardsInMulCardUser(DeviceCapabilities caps, CardTarget target) => target switch
     {
         CardTarget.MulCardUser => true,

@@ -118,8 +118,10 @@ public sealed class AccessRequest
     [DefaultValue(IncludeOption.Auto)]
     public IncludeOption IncludeDevId { get; set; } = IncludeOption.Auto;
 
-    /// <summary>Value for DevID. Empty = Push:DefaultDevId from appsettings (1 = the controller itself).</summary>
-    /// <example>1</example>
+    /// <summary>
+    /// DevID value. Leave empty to use the value stored for this controller
+    /// (PUT /api/devices/{sn}/devid, or appsettings Push:DevIds). The C3-400 Plus AJU8261200103 uses 190.
+    /// </summary>
     public int? DevId { get; set; }
 
     /// <summary>Access validity (only sent when AccSupportFunList[62]=1, or when forced with IncludeValidity=Yes).</summary>

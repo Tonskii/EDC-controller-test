@@ -175,6 +175,9 @@ var ids = new List<int>();
 ids.AddRange(await Call(HttpMethod.Post, "/api/users", new { pin = "1001", name = "Ana Novak", password = "1234", validFrom = "2026-10-20T00:00:00", validUntil = "2030-12-31T23:59:59", cardNo = "12345678" }, "add user + card"));
 ids.AddRange(await Call(HttpMethod.Put, "/api/access", new { pin = "1001", doors = new[] { 1, 2, 3, 4 }, timezoneId = 1 }, "access to 4 doors"));
 ids.AddRange(await Call(HttpMethod.Put, "/api/access", new { pin = "1001", doors = new[] { 1, 2, 3, 4 }, timezoneId = 2, includeDevId = "Yes", devId = 1 }, "access with explicit DevID"));
+var setDevId = await http.PutAsync($"/api/devices/{sn}/devid?value=190", null);
+Check(setDevId.IsSuccessStatusCode, "store DevID 190 for the controller");
+ids.AddRange(await Call(HttpMethod.Put, "/api/access", new { pin = "1001", doors = new[] { 1 }, timezoneId = 2, includeDevId = "Yes" }, "access using stored DevID"));
 ids.AddRange(await Call(HttpMethod.Put, "/api/access/batch", new { items = new object[] { new { pin = "1001", doors = new[] { 1, 2 }, timezoneId = 2, devId = 1 }, new { pin = "1002", doors = new[] { 3, 4 }, timezoneId = 2, devId = 1 } } }, "access batch with DevID"));
 ids.AddRange(await Call(HttpMethod.Put, "/api/timerules", new { timezoneId = 2, weekdays = new[] { "07:00-12:00", "12:30-17:00" }, weekend = new[] { "08:00-12:00" } }, "time rule"));
 ids.AddRange(await Call(HttpMethod.Put, "/api/holidays", new { date = "2026-12-25", holidayType = 1, loop = 1 }, "holiday"));
@@ -219,6 +222,7 @@ lock (seenWire)
     Check(seenWire.Any(w => w.Contains("DATA UPDATE mulcarduser Pin=1001\tCardNo=bc614e\tLossCardFlag=0\tCardType=0")), "card 12345678 sent as hex bc614e to mulcarduser");
     Check(seenWire.Any(w => w.Contains("DATA UPDATE userauthorize Pin=1001\tAuthorizeTimezoneId=1\tAuthorizeDoorId=15")), "4-door mask 15");
     Check(seenWire.Any(w => w.EndsWith("DATA UPDATE userauthorize Pin=1001\tAuthorizeTimezoneId=2\tAuthorizeDoorId=15\tDevID=1")), "explicit DevID=1 appended");
+    Check(seenWire.Any(w => w.EndsWith("DATA UPDATE userauthorize Pin=1001\tAuthorizeTimezoneId=2\tAuthorizeDoorId=1\tDevID=190")), "stored per-controller DevID 190 used");
     Check(seenWire.Any(w => w.EndsWith("DATA UPDATE userauthorize Pin=1001\tAuthorizeTimezoneId=2\tAuthorizeDoorId=3\tDevID=1\nPin=1002\tAuthorizeTimezoneId=2\tAuthorizeDoorId=12\tDevID=1")), "batch access with DevID per record");
     Check(seenWire.Any(w => w.Contains("MonTime1=45876400\tMonTime2=80610980") && w.Contains("SunTime1=52430000")), "time rule encoding");
     Check(seenWire.Any(w => w.EndsWith("CONTROL DEVICE 0103010F")), "open door 3 for 15 s uses hex 0F");
