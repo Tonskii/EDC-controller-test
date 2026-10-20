@@ -131,8 +131,9 @@ public sealed class IClockController : ControllerBase
         }
 
         session.ConfigDownloadedAt = DateTimeOffset.Now;
+        CheckToken(session);
         var config = BuildConfig(session, includeRegistry: false);
-        HttpContext.Note($"Handshake complete. Device will poll /iclock/getrequest every {_opt.RequestDelay}s. Expected Cookie token from now on: {session.ExpectedToken}");
+        HttpContext.Note($"Handshake complete. Device will poll /iclock/getrequest every {_opt.RequestDelay}s.");
         return Text(config, PushType);
     }
 
@@ -437,14 +438,53 @@ public sealed class IClockController : ControllerBase
     private void CheckToken(DeviceSession session)
     {
         var cookie = Request.Headers.Cookie.ToString();
-        if (string.IsNullOrEmpty(cookie) || string.IsNullOrEmpty(session.SessionId))
+        if (string.IsNullOrEmpty(cookie))
         {
             return;
         }
 
-        if (!cookie.Contains(session.ExpectedToken, StringComparison.OrdinalIgnoreCase))
+        // Seen on C3-400 Plus (AC Ver 19.0.18, push 2.0.34.ACCS-20250410):
+        //   Cookie: token=<md5>,timestamp=2026-10-20-15-52-24
+        //   token = MD5(RegistryCode + SN + timestamp)  — the doc says RegistryCode + SN + SessionID.
+        var token = System.Text.RegularExpressions.Regex.Match(cookie, @"token=([0-9a-fA-F]{32})").Groups[1].Value;
+        var stamp = System.Text.RegularExpressions.Regex.Match(cookie, @"timestamp=([^,;\s]+)").Groups[1].Value;
+        if (token.Length == 0)
         {
-            HttpContext.Note($"Cookie token differs from MD5(RegistryCode+SN+SessionID)={session.ExpectedToken}. Not enforced — informational only.");
+            return;
+        }
+
+        static string Md5(string s) => Convert.ToHexString(System.Security.Cryptography.MD5.HashData(Encoding.UTF8.GetBytes(s))).ToLowerInvariant();
+
+        var withStamp = stamp.Length > 0 ? Md5(session.RegistryCode + session.SerialNumber + stamp) : "";
+        if (token.Equals(withStamp, StringComparison.OrdinalIgnoreCase) ||
+            token.Equals(session.ExpectedToken, StringComparison.OrdinalIgnoreCase))
+        {
+            if (stamp.Length > 0)
+            {
+                CheckDeviceClock(stamp);
+            }
+
+            return;
+        }
+
+        HttpContext.Note($"Cookie token {token} matches neither MD5(RegistryCode+SN+timestamp) nor MD5(RegistryCode+SN+SessionID). " +
+                         "Not enforced — informational only (server restarted with a new RegistryCode?).");
+    }
+
+    /// <summary>The cookie timestamp is the controller's own clock: warn when it is far from server time.</summary>
+    private void CheckDeviceClock(string stamp)
+    {
+        if (!DateTime.TryParseExact(stamp, "yyyy-MM-dd-HH-mm-ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out var deviceTime))
+        {
+            return;
+        }
+
+        var serverLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, _opt.ResolveTimeZone()).DateTime;
+        var diff = deviceTime - serverLocal;
+        if (Math.Abs(diff.TotalMinutes) >= 2)
+        {
+            HttpContext.Note($"CONTROLLER CLOCK is {diff.TotalHours:+0.0;-0.0} h off ({deviceTime:yyyy-MM-dd HH:mm:ss} vs server {serverLocal:yyyy-MM-dd HH:mm:ss} {_opt.TimeZone}). " +
+                             "Time rules use the controller clock → run POST /api/device/sync-time and check the time zone in the web UI.");
         }
     }
 

@@ -108,3 +108,20 @@ Line numbers refer to `Piramida.Edc.API` (`Controllers/ZKTecoPushController.cs` 
 5. If the handshake completes (`Handshake complete` line) but commands fail, the return code meaning is printed next to
    each result; compare with the decisions printed at registration.
 6. Send the file `logs/push-traffic-<date>.log` along with any question — it contains every request unfiltered.
+
+## 7. First real connection (2026-10-20, SN AJU8261200103)
+
+Handshake init → registry → push completed in plain text; no `/iclock/exchange`, `WebServerURL=http://…` (no TLS).
+
+| Value | Meaning |
+|---|---|
+| `pushver=3.1.2` (init URL) | **Protocol** version — the one Appendix 13 talks about. 3.1.2 ≥ 3.1.1 ⇒ the firmware *can* encrypt; our `PushProtVer=3.0.1` kept it plain. |
+| `PushVersion=Ver 2.0.34.ACCS-20250410` (registry) | Version of the PUSH client **module inside the firmware** (build date). Different numbering, normal — the doc's own example is `PushVersion=Ver 2.0.22-20161201` with `pushver=3.0.1`. |
+| `FirmVer=AC Ver 19.0.18 Apr 23 2025`, `MachineType=10` | Appendix 7: 10 = C3-460 / inBio460 family. |
+| `DateFmtFunOn=1`, `DevNSLevel=0`, no `CmdFormat`, no `StringPinFunOn` | Dates as seconds, plain `C:ID:CMD`, numeric PINs. |
+| `AccSupportFunList` bits set | 1,2,5–12,14–26,32,33,44,47,48,49,51 → multi-card (`mulcarduser`), DevID field (26), no access/time-rule validity (60/62), none of the 2025/26 bits (64–66), no `RemoteOpenDoorExFunOn`. |
+| Cookie `token=…,timestamp=2026-10-20-15-52-24` | token = **MD5(RegistryCode + SN + timestamp)** (verified), not the documented MD5(RegistryCode + SN + SessionID). The timestamp is the controller clock: it was **+6 h** ahead of local time (looks like the China UTC+8 default) → fix with `POST /api/device/sync-time` / web UI time zone, otherwise time rules are shifted. |
+
+**Experiment to confirm whether the old server caused encryption:** set `Push:LegacyPushVersionLine` to `3.2.3`
+(what the old server sent), restart, power-cycle the controller. If `/iclock/exchange` appears, that line is the
+root cause. Then also try `Push:PushProtVer=3.1.2`.

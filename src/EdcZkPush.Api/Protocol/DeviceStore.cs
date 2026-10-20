@@ -23,7 +23,7 @@ public sealed class DeviceSession
     public long RtStateCount;
     public string? LastInfo { get; set; }
 
-    /// <summary>Token the device should send in its Cookie: MD5(RegistryCode + SN + SessionID) as hex (Security PUSH 4.5).</summary>
+    /// <summary>Token per the document: MD5(RegistryCode + SN + SessionID). Real C3-400 Plus firmware uses MD5(RegistryCode + SN + cookie timestamp) instead.</summary>
     public string ExpectedToken
     {
         get
