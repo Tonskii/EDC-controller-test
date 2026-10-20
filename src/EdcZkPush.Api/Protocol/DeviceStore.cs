@@ -24,6 +24,9 @@ public sealed class DeviceSession
     public long RtStateCount;
     public string? LastInfo { get; set; }
 
+    /// <summary>Parameter values reported by the controller in GET OPTIONS answers (override registry values).</summary>
+    public Dictionary<string, string> LearnedOptions { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>DevID set at runtime (PUT /api/devices/{sn}/devid), saved in the devices folder.</summary>
     public int? DevId { get; set; }
 

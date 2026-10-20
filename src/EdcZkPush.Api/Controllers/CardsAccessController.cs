@@ -93,6 +93,11 @@ public sealed class CardsController : ApiBase
         {
             var hex = SecurityCommands.CardToHex(r.CardNo);
             notes.Add($"Card {r.CardNo} → mulcarduser CardNo={hex} (hex).");
+            if (r.Target == CardTarget.Auto && caps.CardsInMulCardUser == null)
+            {
+                notes.Add("WARNING: the controller only looks in mulcarduser when MulCardUserFunOn=1. It is not known whether that is on — " +
+                          "check with POST /api/device/options/get {\"names\":[\"MulCardUserFunOn\"]}.");
+            }
             if ((r.CardBit.HasValue || !string.IsNullOrEmpty(r.SiteCode)) && caps.WgRuleVer?.Contains('2') != true)
             {
                 notes.Add("CardBit/SiteCode are only understood with WGRuleVer=2.0 — the device may answer -621.");

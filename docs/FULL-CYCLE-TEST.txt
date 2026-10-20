@@ -44,6 +44,37 @@ copy the console block of that command (yellow "sending" + green/red "result").
      → GET /api/commands/{id} → queryData shows the controller time.
 
 
+0.4  IMPORTANT — is multi-card mode SWITCHED ON?
+     The controller registers with AccSupportFunList[7]=1, which only means "multi-card is
+     SUPPORTED". Cards in table mulcarduser are only used when MulCardUserFunOn=1 is ACTIVE.
+     If it is 0, every swipe gives EVENT 27 even though the card is in mulcarduser.
+
+     Read it:   POST /api/device/options/get
+{
+  "sn": "AJU8261200103",
+  "names": ["MulCardUserFunOn"]
+}
+     → console prints "Option MulCardUserFunOn = 0/1" (also in GET /api/commands/{id} → queryData)
+
+     Switch it on:   POST /api/device/options/set
+{
+  "sn": "AJU8261200103",
+  "options": { "MulCardUserFunOn": "1" }
+}
+     Expected:  C:<id>:SET OPTIONS MulCardUserFunOn=1
+     Then read it again (above). Reboot the controller if it still says 0.
+
+     Alternative if it will not switch on: keep cards in the user table instead — in STEP 3 add
+     "target": "UserTable"  → DATA UPDATE user CardNo=1901654[TAB]Pin=1001
+
+0.5  Clean up broken test users (only once)
+     The user query showed two rows created earlier with SPACES instead of tabs, e.g.
+       pin=1 Password=234 Group=0 StartTime=0 EndTime=0 Name=Janez Privilege=0 DevId=190
+     The whole text became the PIN. Fields MUST be separated by TAB — in POST /api/raw write [TAB].
+     Easiest clean-up (removes all users, cards and access on the controller):
+     DELETE /api/users/all      confirm = true, sn = AJU8261200103
+
+
 ---------------------------------------------------------------------
  STEP 1 — CREATE THE TIME RULE ("timezone" 2)
 ---------------------------------------------------------------------
@@ -177,7 +208,8 @@ copy the console block of that command (yellow "sending" + green/red "result").
        EVENT 0  "Normal open after verification" door=1 IN pin=1001 card=...   → OK
        EVENT 22 "Illegal time zone"         → outside time rule 2 (check clock / rule)
        EVENT 23 "Access denied"             → no access for this door (step 4)
-       EVENT 27 "Card/user not registered"  → card number (compare event card= with step 6.2) or user missing
+       EVENT 27 "Card/user not registered"  → card not found: MulCardUserFunOn (step 0.4), card number
+                                             (compare event card= with step 6.2) or user missing
        EVENT 29 "Card/user validity expired"→ validFrom/validUntil or clock (step 0.3)
 
 

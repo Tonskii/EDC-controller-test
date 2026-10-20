@@ -30,9 +30,11 @@ public static class CapabilityReport
 
         yield return c.CardsInMulCardUser switch
         {
-            true => "Cards: multi-card per user supported → cards go to table 'mulcarduser' (hex card number).",
-            false => "Cards: no multi-card support reported → cards go into the 'user' table CardNo field.",
-            _ => "Cards: AccSupportFunList missing → defaulting to 'mulcarduser' (old behaviour)."
+            true => "Cards: MulCardUserFunOn=1 → cards go to table 'mulcarduser' (hex card number).",
+            false => "Cards: multi-card OFF (MulCardUserFunOn=0 or not supported) → cards go into user.CardNo.",
+            _ => "Cards: multi-card SUPPORTED (AccSupportFunList[7]=1) but whether it is SWITCHED ON is unknown → " +
+                 "check with GET OPTIONS MulCardUserFunOn. Until then cards go to 'mulcarduser'; if swipes give EVENT 27, " +
+                 "SET OPTIONS MulCardUserFunOn=1 or use cardTarget=UserTable."
         };
 
         var doors = c.LockCount ?? 4;

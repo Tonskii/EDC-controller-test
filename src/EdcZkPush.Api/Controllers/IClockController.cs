@@ -93,7 +93,7 @@ public sealed class IClockController : ControllerBase
 
         var session = Touch(SN);
         session.RegistryBody = body;
-        session.Capabilities = DeviceCapabilities.Parse(body);
+        session.Capabilities = DeviceCapabilities.Parse(body).With(session.LearnedOptions);
         session.CapabilitiesFromCache = false;
         session.RegisteredAt = DateTimeOffset.Now;
         _devices.SaveRegistry(session);
@@ -248,14 +248,38 @@ public sealed class IClockController : ControllerBase
         [FromQuery] string? tablename, [FromQuery] int count = 0, [FromQuery] int packcnt = 1, [FromQuery] int packidx = 1)
     {
         HttpContext.SetKind(TrafficKind.CommandResult);
-        var body = await ReadBody();
-        if (!string.IsNullOrWhiteSpace(SN))
+        var rawBody = await ReadBody();
+        var body = rawBody.Replace("\0", "");
+        if (body.Length < rawBody.Length)
         {
-            Touch(SN);
+            HttpContext.Note($"Body contained {rawBody.Length - body.Length} NUL padding bytes (firmware quirk on empty results) — ignored.");
         }
+
+        var session = string.IsNullOrWhiteSpace(SN) ? null : Touch(SN);
 
         var cmd = _queue.Get(cmdid);
         cmd?.QueryData.AddRange(RealtimeParser.Records(body));
+
+        if (session != null && string.Equals(type, "options", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var part in body.Split(new[] { ',', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var i = part.IndexOf('=');
+                if (i <= 0) continue;
+                var key = part[..i].Trim().TrimStart('~');
+                session.LearnedOptions[key] = part[(i + 1)..].Trim();
+                HttpContext.Note($"Option {key} = {part[(i + 1)..].Trim()}");
+            }
+
+            session.Capabilities = (session.Capabilities ?? new DeviceCapabilities(new Dictionary<string, string>())).With(session.LearnedOptions);
+            if (session.LearnedOptions.TryGetValue("MulCardUserFunOn", out var mc))
+            {
+                HttpContext.Note(mc == "1"
+                    ? "MulCardUserFunOn=1 → cards are looked up in mulcarduser."
+                    : "MulCardUserFunOn=0 → the controller looks cards up in user.CardNo and IGNORES mulcarduser! " +
+                      "Either SET OPTIONS MulCardUserFunOn=1 or add cards with cardTarget=UserTable.");
+            }
+        }
         HttpContext.Note($"Query data for #{cmdid} [{cmd?.Label ?? "?"}] type={type} table={tablename} count={count} package {packidx}/{packcnt}");
 
         if (string.IsNullOrWhiteSpace(tablename))

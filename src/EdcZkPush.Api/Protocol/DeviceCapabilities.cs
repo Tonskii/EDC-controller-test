@@ -59,9 +59,31 @@ public sealed class DeviceCapabilities
         return list[position] == '1';
     }
 
-    /// <summary>Cards live in the separate mulcarduser table (bit 7, or MulCardUserFunOn=1).</summary>
-    public bool? CardsInMulCardUser =>
-        MulCardUserFunOn == 1 ? true : Supports(AccFunBits.MultipleCardsPerUser);
+    /// <summary>
+    /// Cards live in the separate mulcarduser table only when the option MulCardUserFunOn=1 is ACTIVE on the controller.
+    /// AccSupportFunList[7] only says the feature is SUPPORTED — per the protocol the server has to switch it on with
+    /// SET OPTIONS MulCardUserFunOn=1. true/false = known, null = supported but current state unknown.
+    /// </summary>
+    public bool? CardsInMulCardUser => MulCardUserFunOn switch
+    {
+        1 => true,
+        0 => false,
+        _ => Supports(AccFunBits.MultipleCardsPerUser) == false ? false : null
+    };
+
+    public bool? MultiCardSupported => Supports(AccFunBits.MultipleCardsPerUser);
+
+    /// <summary>Copy with values learned later (GET OPTIONS answers) layered over the registry values.</summary>
+    public DeviceCapabilities With(IReadOnlyDictionary<string, string> overrides)
+    {
+        var merged = new Dictionary<string, string>(Raw, StringComparer.OrdinalIgnoreCase);
+        foreach (var kv in overrides)
+        {
+            merged[kv.Key] = kv.Value;
+        }
+
+        return new DeviceCapabilities(merged);
+    }
 
     public bool? SupportsDevIdField => Supports(AccFunBits.TableDevIdField);
     public bool? SupportsTimeRuleValidity => Supports(AccFunBits.TimeRuleValidPeriod);

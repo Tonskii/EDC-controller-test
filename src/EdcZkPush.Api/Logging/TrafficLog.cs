@@ -179,6 +179,14 @@ public sealed class TrafficLog
 
     private static IEnumerable<string> Visible(string body, int max, bool splitRegistry)
     {
+        var withoutNul = body.Replace("\0", "");
+        var nul = body.Length - withoutNul.Length;
+        body = withoutNul;
+        if (nul > 0)
+        {
+            yield return $"[{nul} NUL bytes removed]";
+        }
+
         if (string.IsNullOrEmpty(body))
         {
             yield return "(empty)";
