@@ -170,6 +170,13 @@ public sealed class IClockController : ControllerBase
         CheckToken(session);
 
 
+        if (_opt.AutoDetectDevId && !session.DevPropertyQueried && session.ConfigDownloadedAt != null &&
+            session.Capabilities?.SupportsDevIdField == true)
+        {
+            session.DevPropertyQueried = true;
+            _queue.Enqueue(session.SerialNumber, "Auto: read DevProperty (detect DevID)", SecurityCommands.Query("DevProperty"));
+        }
+
         var commands = _queue.TakeForDelivery(session.SerialNumber, _opt.MaxCommandsPerPoll, _opt.ResendUnansweredAfterSeconds);
         if (commands.Count == 0)
         {
@@ -259,6 +266,28 @@ public sealed class IClockController : ControllerBase
 
         var cmd = _queue.Get(cmdid);
         cmd?.QueryData.AddRange(RealtimeParser.Records(body));
+
+        if (session != null && string.Equals(tablename, "DevProperty", StringComparison.OrdinalIgnoreCase))
+        {
+            // Rows look like: DevProperty ID=1<TAB>Type=0<TAB>BusType=0<TAB>MachineType=10<TAB>...<TAB>SN=AJU8261200103<TAB>IsMaster=0
+            var rows = RealtimeParser.Records(body)
+                .Select(r => RealtimeParser.ParseTabRecord(r.StartsWith("DevProperty ", StringComparison.OrdinalIgnoreCase) ? r[12..] : r))
+                .ToList();
+            var own = rows.FirstOrDefault(r => r.TryGetValue("SN", out var rsn) && string.Equals(rsn, session.SerialNumber, StringComparison.OrdinalIgnoreCase))
+                      ?? (rows.Count == 1 ? rows[0] : null);
+            if (own != null && own.TryGetValue("ID", out var idText) && int.TryParse(idText, out var devId))
+            {
+                session.DetectedDevId = devId;
+                HttpContext.Note($"DevID detected from the controller's DevProperty table: {devId} — used for userauthorize when no devId is given " +
+                                 (session.DevId.HasValue ? $"(but a manual DevID {session.DevId} is set via PUT /api/devices/{{sn}}/devid and wins)." : "."));
+            }
+        }
+
+        if (session != null && body.Trim().Length == 0 && count == 0 && rawBody.Length > 0)
+        {
+            HttpContext.Note($"Package {packidx} of '{tablename}' contained only NUL padding — this firmware does not return readable rows for this table. " +
+                             "The Return= value in the following devicecmd result is the real row count.");
+        }
 
         if (session != null && string.Equals(type, "options", StringComparison.OrdinalIgnoreCase))
         {

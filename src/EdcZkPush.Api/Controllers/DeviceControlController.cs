@@ -202,17 +202,65 @@ public sealed class RecordsController : ApiBase
     ///     GET OPTIONS ~SerialNumber,FirmVer,LockCount
     /// </remarks>
     [HttpPost("raw")]
-    public IActionResult Raw([FromBody] RawCommandRequest r, [FromQuery] bool preview = false)
+    public IActionResult Raw([FromBody] RawCommandRequest? r, [FromQuery] bool preview = false)
     {
+        if (r == null)
+        {
+            return BadRequest(new { error = "Body missing or not valid JSON. Do not paste real tab characters into the JSON — write [TAB]." });
+        }
+
         var (s, _, error) = Target(r.Sn, preview);
         if (error != null) return error;
         if (string.IsNullOrWhiteSpace(r.Command)) return BadRequest(new { error = "Command is required." });
-        var text = r.Command.Replace("[TAB]", "\t").Replace("[LF]", "\n").Trim('\r', '\n');
+        var text = System.Text.RegularExpressions.Regex.Replace(r.Command, @"\[tab\]", "\t", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\[lf\]", "\n", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim('\r', '\n');
+        var notes = FieldNameWarnings(text).ToList();
         if (text.StartsWith("C:", StringComparison.OrdinalIgnoreCase))
         {
             return BadRequest(new { error = "Leave out the 'C:ID:' prefix — the server adds it." });
         }
 
-        return Done(s, preview, new[] { (r.Label ?? "Raw command", text) });
+        return Done(s, preview, new[] { (r.Label ?? "Raw command", text) }, notes);
+    }
+
+    private static readonly Dictionary<string, string[]> KnownFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["user"] = new[] { "CardNo", "Pin", "Password", "Group", "StartTime", "EndTime", "Name", "Privilege", "Disable" },
+        ["mulcarduser"] = new[] { "Pin", "CardNo", "LossCardFlag", "CardType", "CardBit", "SiteCode", "IMIE" },
+        ["userauthorize"] = new[] { "Pin", "AuthorizeTimezoneId", "AuthorizeDoorId", "DevID", "StartTime", "EndTime" },
+        ["timezone"] = SecurityCommands.TimezoneSlots.Prepend("TimezoneId").Concat(new[] { "StartTime", "EndTime" }).ToArray(),
+        ["holiday"] = new[] { "Holiday", "HolidayType", "Loop" },
+    };
+
+    /// <summary>The firmware silently ignores misspelled field names (e.g. "Cardno" → stored empty) — point them out.</summary>
+    private static IEnumerable<string> FieldNameWarnings(string text)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(text, @"^DATA (UPDATE|DELETE) (\S+) (.*)$", System.Text.RegularExpressions.RegexOptions.Singleline);
+        if (!m.Success || !KnownFields.TryGetValue(m.Groups[2].Value, out var known)) yield break;
+
+        foreach (var record in m.Groups[3].Value.Split('\n'))
+        {
+            foreach (var part in record.Split('\t'))
+            {
+                var i = part.IndexOf('=');
+                if (i <= 0) continue;
+                var key = part[..i];
+                if (key.Contains(' '))
+                {
+                    yield return $"WARNING: '{part}' contains a space — fields must be separated by [TAB], otherwise everything ends up in one field.";
+                    continue;
+                }
+
+                var exact = known.FirstOrDefault(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase));
+                if (exact == null)
+                {
+                    yield return $"WARNING: field '{key}' is not a documented {m.Groups[2].Value} field.";
+                }
+                else if (exact != key)
+                {
+                    yield return $"WARNING: field '{key}' should be written '{exact}' — the controller is case-sensitive and ignores '{key}'.";
+                }
+            }
+        }
     }
 }

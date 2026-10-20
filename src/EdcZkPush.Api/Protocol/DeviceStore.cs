@@ -27,6 +27,12 @@ public sealed class DeviceSession
     /// <summary>Parameter values reported by the controller in GET OPTIONS answers (override registry values).</summary>
     public Dictionary<string, string> LearnedOptions { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>DevID read from the controller's own DevProperty table (ID of the row with this SN).</summary>
+    public int? DetectedDevId { get; set; }
+
+    /// <summary>True once the automatic DevProperty query has been queued for this session.</summary>
+    public bool DevPropertyQueried { get; set; }
+
     /// <summary>DevID set at runtime (PUT /api/devices/{sn}/devid), saved in the devices folder.</summary>
     public int? DevId { get; set; }
 

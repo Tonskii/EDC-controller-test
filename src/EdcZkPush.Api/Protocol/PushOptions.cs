@@ -54,6 +54,15 @@ public sealed class PushOptions
     /// </summary>
     public Dictionary<string, int> DevIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// How CardNo is written to mulcarduser: "decimal" (what ZKBio CVSecurity writes and the C3-400 Plus
+    /// firmware 19.x matches, e.g. 1901654) or "hex" (what the old server sent, worked on the C3-200 Pro, e.g. 1d0456).
+    /// </summary>
+    public string MulCardNumberFormat { get; set; } = "decimal";
+
+    /// <summary>After the handshake, query table DevProperty once and use its ID as the controller's DevID.</summary>
+    public bool AutoDetectDevId { get; set; } = true;
+
     /// <summary>Last-resort DevID when nothing is known for the controller. 0 = refuse to guess (command is rejected with a clear message).</summary>
     public int DefaultDevId { get; set; } = 0;
 

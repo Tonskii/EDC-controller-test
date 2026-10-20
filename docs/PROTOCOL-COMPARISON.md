@@ -82,7 +82,7 @@ Line numbers refer to `Piramida.Edc.API` (`Controllers/ZKTecoPushController.cs` 
 | Purpose | Command (`[TAB]` = tab) |
 |---|---|
 | Add/update user | `DATA UPDATE user Pin=1001[TAB]Password=1234[TAB]Group=0[TAB]StartTime=861408000[TAB]EndTime=996364799[TAB]Name=Ana Novak` |
-| Add card | `DATA UPDATE mulcarduser Pin=1001[TAB]CardNo=bc614e[TAB]LossCardFlag=0[TAB]CardType=0` |
+| Add card | `DATA UPDATE mulcarduser Pin=1001[TAB]CardNo=12345678[TAB]LossCardFlag=0[TAB]CardType=0` |
 | Access to all 4 doors, rule 1 | `DATA UPDATE userauthorize Pin=1001[TAB]AuthorizeTimezoneId=1[TAB]AuthorizeDoorId=15` |
 | Time rule 2 (Mon 07:00–12:00) | `DATA UPDATE timezone TimezoneId=2[TAB]SunTime1=0[TAB]…[TAB]MonTime1=45876400[TAB]…` (30 slots, `start<<16 + end`) |
 | Holiday | `DATA UPDATE holiday Holiday=20261225[TAB]HolidayType=1[TAB]Loop=1` |

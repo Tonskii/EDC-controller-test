@@ -16,13 +16,14 @@ public sealed class CardsController : ApiBase
     /// <remarks>
     /// mulcarduser (default on C3):
     ///
-    ///     C:111:DATA UPDATE mulcarduser Pin=1001[TAB]CardNo=bc614e[TAB]LossCardFlag=0[TAB]CardType=0
+    ///     C:111:DATA UPDATE mulcarduser Pin=1001[TAB]CardNo=12345678[TAB]LossCardFlag=0[TAB]CardType=0
     ///
     /// user table (devices without multi-card support):
     ///
     ///     C:111:DATA UPDATE user CardNo=12345678[TAB]Pin=1001
     ///
-    /// The card number is entered in decimal (as the reader shows it). mulcarduser stores it as a hex string.
+    /// Enter the number in decimal, or hex with 0x (the swipe event shows hex). Written to mulcarduser in DECIMAL by default
+    /// (Push:MulCardNumberFormat) — that is what ZKBio CVSecurity writes and what the C3-400 Plus matches.
     /// </remarks>
     [HttpPost]
     public IActionResult Add([FromBody] CardRequest request, [FromQuery] bool preview = false)
@@ -55,7 +56,7 @@ public sealed class CardsController : ApiBase
     /// <summary>Delete one card (cardNo given) or all cards of a user.</summary>
     /// <remarks>
     ///     C:112:DATA DELETE mulcarduser Pin=1001                 (all cards of the user)
-    ///     C:112:DATA DELETE mulcarduser Pin=1001[TAB]CardNo=bc614e  (one card)
+    ///     C:112:DATA DELETE mulcarduser Pin=1001[TAB]CardNo=12345678  (one card)
     /// user-table mode clears the field instead:  DATA UPDATE user CardNo=[TAB]Pin=1001
     /// </remarks>
     [HttpDelete("{pin}")]
@@ -70,7 +71,7 @@ public sealed class CardsController : ApiBase
             return Done(s, preview, new[] { ($"Clear card of {pin}", SecurityCommands.Update("user", new[] { $"CardNo=\tPin={pin}" })) });
         }
 
-        var cond = string.IsNullOrWhiteSpace(cardNo) ? $"Pin={pin}" : $"Pin={pin}\tCardNo={SecurityCommands.CardToHex(cardNo)}";
+        var cond = string.IsNullOrWhiteSpace(cardNo) ? $"Pin={pin}" : $"Pin={pin}\tCardNo={MulCardNumber(cardNo)}";
         return Done(s, preview, new[] { ($"Delete card(s) of {pin}", SecurityCommands.Delete("mulcarduser", new[] { cond })) });
     }
 
@@ -84,15 +85,14 @@ public sealed class CardsController : ApiBase
         return Done(s, preview, new[] { ("Query cards", SecurityCommands.Query("mulcarduser")) });
     }
 
-    private static (string Label, string Text) Build(CardRequest r, DeviceCapabilities caps, List<string> notes)
+    private (string Label, string Text) Build(CardRequest r, DeviceCapabilities caps, List<string> notes)
     {
         ValidatePin(r.Pin, caps);
         if (string.IsNullOrWhiteSpace(r.CardNo)) throw new ArgumentException("CardNo is required.");
 
         if (CardsInMulCardUser(caps, r.Target))
         {
-            var hex = SecurityCommands.CardToHex(r.CardNo);
-            notes.Add($"Card {r.CardNo} → mulcarduser CardNo={hex} (hex).");
+            var hex = MulCardNumber(r.CardNo, notes);
             if (r.Target == CardTarget.Auto && caps.CardsInMulCardUser == null)
             {
                 notes.Add("WARNING: the controller only looks in mulcarduser when MulCardUserFunOn=1. It is not known whether that is on — " +

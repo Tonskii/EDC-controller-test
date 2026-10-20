@@ -17,7 +17,7 @@ public sealed class UsersController : ApiBase
     /// Wire example (DateFmtFunOn=1, cards in mulcarduser):
     ///
     ///     C:101:DATA UPDATE user Pin=1001[TAB]Password=1234[TAB]Group=0[TAB]StartTime=861408000[TAB]EndTime=996364799[TAB]Name=Ana Novak
-    ///     C:102:DATA UPDATE mulcarduser Pin=1001[TAB]CardNo=bc614e[TAB]LossCardFlag=0[TAB]CardType=0
+    ///     C:102:DATA UPDATE mulcarduser Pin=1001[TAB]CardNo=12345678[TAB]LossCardFlag=0[TAB]CardType=0
     ///
     /// Expected result: ID=101&amp;Return=0&amp;CMD=DATA UPDATE
     /// </remarks>
@@ -139,7 +139,7 @@ public sealed class UsersController : ApiBase
         return Done(s, preview, new[] { ("Count users", SecurityCommands.Count("user")) });
     }
 
-    private static IEnumerable<(string Label, string Text)> BuildUser(UserRequest r, DeviceCapabilities caps, List<string> notes)
+    private IEnumerable<(string Label, string Text)> BuildUser(UserRequest r, DeviceCapabilities caps, List<string> notes)
     {
         ValidatePin(r.Pin, caps);
         if (r.ValidFrom.HasValue && r.ValidUntil.HasValue && r.ValidUntil < r.ValidFrom)
@@ -156,8 +156,7 @@ public sealed class UsersController : ApiBase
         {
             if (CardsInMulCardUser(caps, r.CardTarget))
             {
-                cardRecord = SecurityCommands.CardRecord(r.Pin, SecurityCommands.CardToHex(r.CardNo), 0, 0, null, null);
-                notes.Add($"Card {r.CardNo} → mulcarduser as hex {SecurityCommands.CardToHex(r.CardNo)}.");
+                cardRecord = SecurityCommands.CardRecord(r.Pin, MulCardNumber(r.CardNo, notes), 0, 0, null, null);
             }
             else
             {

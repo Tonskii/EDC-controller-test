@@ -30,7 +30,7 @@ public static class CapabilityReport
 
         yield return c.CardsInMulCardUser switch
         {
-            true => "Cards: MulCardUserFunOn=1 → cards go to table 'mulcarduser' (hex card number).",
+            true => "Cards: MulCardUserFunOn=1 → cards go to table 'mulcarduser' (card number in decimal by default, Push:MulCardNumberFormat).",
             false => "Cards: multi-card OFF (MulCardUserFunOn=0 or not supported) → cards go into user.CardNo.",
             _ => "Cards: multi-card SUPPORTED (AccSupportFunList[7]=1) but whether it is SWITCHED ON is unknown → " +
                  "check with GET OPTIONS MulCardUserFunOn. Until then cards go to 'mulcarduser'; if swipes give EVENT 27, " +
@@ -41,7 +41,9 @@ public static class CapabilityReport
         yield return $"Doors: {doors} → userauthorize AuthorizeDoorId bit mask 1..{(1 << doors) - 1} (old server only allowed 1..3).";
 
         yield return c.SupportsDevIdField == true
-            ? $"userauthorize: AccSupportFunList[26]=1 → DevID={opt.DefaultDevId} will be added automatically (includeDevId=Auto)."
+            ? (opt.AutoDetectDevId
+                ? "userauthorize: AccSupportFunList[26]=1 → DevID will be added; its value is read from the controller's DevProperty table right after the handshake."
+                : "userauthorize: AccSupportFunList[26]=1 → DevID will be added (value from PUT /api/devices/{sn}/devid or Push:DevIds).")
             : "userauthorize: DevID field not supported → omitted unless includeDevId=Yes.";
 
         if (c.SupportsAccessLevelValidity == true)

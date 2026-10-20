@@ -51,7 +51,7 @@ var registryBody = string.Join(",",
     "~MaxAttLogCount=500000", "IPAddress=192.168.1.201", "NetMask=255.255.255.0", "GATEIPAddress=0.0.0.0",
     "DateFmtFunOn=1", "MulCardUserFunOn=1", "StringPinFunOn=0", "UserNameFunOn=1", "CmdFormat=0", "DevNSLevel=0",
     "WGRuleVer=2.0", "RemoteOpenDoorExFunOn=1",
-    "AccSupportFunList=" + AccBits(67, 1, 2, 7, 11, 33, 35, 40, 47, 49, 60, 61, 62),
+    "AccSupportFunList=" + AccBits(67, 1, 2, 7, 11, 26, 33, 35, 40, 47, 49, 60, 61, 62),
     "MultiStageControlFunOn=0", "MasterControlOn=0", "SubControlOn=0", "IsSupportQRcode=1", "QRCodeEnable=1");
 var reg = await Device(HttpMethod.Post, $"/iclock/registry?SN={sn}", registryBody);
 var regCode = Regex.Match(reg, @"RegistryCode=(\S+)").Groups[1].Value;
@@ -104,7 +104,9 @@ var loop = Task.Run(async () =>
                 if (text.StartsWith("DATA QUERY"))
                 {
                     var table = Regex.Match(text, @"tablename=([^,]+)").Groups[1].Value;
-                    var rows = table == "user"
+                    var rows = table.Equals("DevProperty", StringComparison.OrdinalIgnoreCase)
+                        ? $"DevProperty ID=7\tType=0\tBusType=0\tMachineType=10\tAddress=0\tMac=\tIPAddress=127.0.0.1\tSN={sn}\tIsMaster=0"
+                        : table == "user"
                         ? "user uid=1\tcardno=\tpin=1001\tpassword=1234\tgroup=0\tstarttime=0\tendtime=0\tname=Ana Novak\tprivilege=0\tdisable=0\tverify=0\nuser uid=2\tcardno=\tpin=1002\tpassword=\tgroup=0\tstarttime=0\tendtime=0\tname=Test\tprivilege=0\tdisable=0\tverify=0"
                         : $"{table} pin=1001";
                     var count = rows.Split('\n').Length;
@@ -171,6 +173,16 @@ async Task<List<int>> Call(HttpMethod method, string path, object? body, string 
         .Select(c => c.GetProperty("commandId").GetInt32()).ToList();
 }
 
+// The server reads DevProperty right after the handshake to learn the DevID — wait for it.
+var devIdDetected = false;
+for (var i = 0; i < 30 && !devIdDetected; i++)
+{
+    var list = await http.GetStringAsync("/api/devices");
+    devIdDetected = list.Contains("controller DevProperty table") && list.Contains("\"devId\":7");
+    if (!devIdDetected) await Task.Delay(500);
+}
+Check(devIdDetected, "DevID 7 auto-detected from DevProperty");
+
 var ids = new List<int>();
 ids.AddRange(await Call(HttpMethod.Post, "/api/users", new { pin = "1001", name = "Ana Novak", password = "1234", validFrom = "2026-10-20T00:00:00", validUntil = "2030-12-31T23:59:59", cardNo = "12345678" }, "add user + card"));
 ids.AddRange(await Call(HttpMethod.Put, "/api/access", new { pin = "1001", doors = new[] { 1, 2, 3, 4 }, timezoneId = 1 }, "access to 4 doors"));
@@ -219,8 +231,8 @@ if (queryIds.Count > 0)
 lock (seenWire)
 {
     Check(seenWire.Any(w => w.Contains("DATA UPDATE user Pin=1001\tPassword=1234\tGroup=0\tStartTime=861408000\tEndTime=996364799\tName=Ana Novak")), "user command format + encoded dates");
-    Check(seenWire.Any(w => w.Contains("DATA UPDATE mulcarduser Pin=1001\tCardNo=bc614e\tLossCardFlag=0\tCardType=0")), "card 12345678 sent as hex bc614e to mulcarduser");
-    Check(seenWire.Any(w => w.Contains("DATA UPDATE userauthorize Pin=1001\tAuthorizeTimezoneId=1\tAuthorizeDoorId=15")), "4-door mask 15");
+    Check(seenWire.Any(w => w.Contains("DATA UPDATE mulcarduser Pin=1001\tCardNo=12345678\tLossCardFlag=0\tCardType=0")), "card 12345678 sent as decimal to mulcarduser (CVSecurity format)");
+    Check(seenWire.Any(w => w.EndsWith("DATA UPDATE userauthorize Pin=1001\tAuthorizeTimezoneId=1\tAuthorizeDoorId=15\tDevID=7")), "4-door mask 15 with auto-detected DevID 7");
     Check(seenWire.Any(w => w.EndsWith("DATA UPDATE userauthorize Pin=1001\tAuthorizeTimezoneId=2\tAuthorizeDoorId=15\tDevID=1")), "explicit DevID=1 appended");
     Check(seenWire.Any(w => w.EndsWith("DATA UPDATE userauthorize Pin=1001\tAuthorizeTimezoneId=2\tAuthorizeDoorId=1\tDevID=190")), "stored per-controller DevID 190 used");
     Check(seenWire.Any(w => w.EndsWith("DATA UPDATE userauthorize Pin=1001\tAuthorizeTimezoneId=2\tAuthorizeDoorId=3\tDevID=1\nPin=1002\tAuthorizeTimezoneId=2\tAuthorizeDoorId=12\tDevID=1")), "batch access with DevID per record");
