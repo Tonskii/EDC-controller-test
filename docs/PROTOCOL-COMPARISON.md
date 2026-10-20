@@ -125,3 +125,15 @@ Handshake init → registry → push completed in plain text; no `/iclock/exchan
 **Experiment to confirm whether the old server caused encryption:** set `Push:LegacyPushVersionLine` to `3.2.3`
 (what the old server sent), restart, power-cycle the controller. If `/iclock/exchange` appears, that line is the
 root cause. Then also try `Push:PushProtVer=3.1.2`.
+
+## 8. What ZKBio CVSecurity writes (2026-10-20, working card) vs. what we sent
+
+| | ZKBio CVSecurity (door opens) | Our server / old code (EVENT 27) |
+|---|---|---|
+| `mulcarduser` CardNo | **decimal** `1901654`, CardType=0 | hex `1d0456` (old C3-200 Pro format) |
+| `user` row | `cardno=0`, starttime/endtime 0 | same |
+| DevID | `DevProperty` table: `ID=1 … SN=AJU8261200103 IsMaster=0` → **DevID 1** | 190 (not the controller's ID) |
+| `userauthorize` query | Return=9 but packages contain only NUL bytes | same — firmware quirk, use Return as the count |
+
+Swipe events still report the card in hex (`cardno=1d0456`) — the stored value must be the decimal of it.
+The server now writes decimal (`Push:MulCardNumberFormat`) and reads DevID from `DevProperty` after the handshake.
