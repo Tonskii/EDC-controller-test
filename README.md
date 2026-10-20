@@ -6,6 +6,7 @@ what it sends, and drive every basic command from Swagger.
 
 * Why the old `Piramida.Edc.API` code may not work with the C3-400 Plus, and what changed between the protocol
   documents: **[docs/PROTOCOL-COMPARISON.md](docs/PROTOCOL-COMPARISON.md)**
+* Step-by-step Swagger test (add → query → delete): **[docs/FULL-CYCLE-TEST.txt](docs/FULL-CYCLE-TEST.txt)**
 * A fake controller (`tools/EdcZkPush.Simulator`) lets you try everything without hardware; GitHub Actions runs it
   as a self test on every push.
 
