@@ -126,14 +126,21 @@ Handshake init → registry → push completed in plain text; no `/iclock/exchan
 (what the old server sent), restart, power-cycle the controller. If `/iclock/exchange` appears, that line is the
 root cause. Then also try `Push:PushProtVer=3.1.2`.
 
-## 8. What ZKBio CVSecurity writes (2026-10-20, working card) vs. what we sent
+## 8. What ZKBio CVSecurity sends (verified 2026-10-21 — door opens when we send the same)
 
-| | ZKBio CVSecurity (door opens) | Our server / old code (EVENT 27) |
+| Table | ZKBio CVSecurity / now sent by the server | What we sent before (EVENT 27) |
 |---|---|---|
-| `mulcarduser` CardNo | **decimal** `1901654`, CardType=0 | hex `1d0456` (old C3-200 Pro format) |
-| `user` row | `cardno=0`, starttime/endtime 0 | same |
-| DevID | `DevProperty` table: `ID=1 … SN=AJU8261200103 IsMaster=0` → **DevID 1** | 190 (not the controller's ID) |
-| `userauthorize` query | Return=9 but packages contain only NUL bytes | same — firmware quirk, use Return as the count |
+| `userauthorize` | **one row per door**: `Pin=1 AuthorizeTimezoneId=1 AuthorizeDoorId=1 DevID=1`, `…DoorId=2…`, `…3…`, `…4…` — the controller reports `AccSupportFunList[15]=1` ("DoorID represents one door") | one row with bit mask `AuthorizeDoorId=15` (accepted with Return=0, matches no door) |
+| DevID | `DevProperty` table: `ID=1 … SN=AJU8261200103` → **1** | 190 |
+| `mulcarduser` CardNo | **lowercase hex** as in the swipe event: `1d0456`, `3876f6` | uppercase `3876F6` → EVENT 27 (verified); the 2026-10-20 note that decimal is needed was **wrong** |
+| `user` | `CardNo= Pin Password Group StartTime EndTime Name= SuperAuthorize=0 Disable=0` | no CardNo/SuperAuthorize/Disable, Name filled |
+| `extuser` | `Pin FunSwitch=0 FirstName=<name> LastName=` | not sent |
+| `SuperAuthorize` | `DATA DELETE SuperAuthorize Pin=<pin>` per user | not sent |
+| `timezone` 1 | `SunTime1=2359 … Hol3Time1=2359` (00:00-23:59 every day incl. holidays) | — |
+| `userauthorize` query | Return=N, packages only NUL bytes (firmware quirk) | same |
 
-Swipe events still report the card in hex (`cardno=1d0456`) — the stored value must be the decimal of it.
-The server now writes decimal (`Push:MulCardNumberFormat`) and reads DevID from `DevProperty` after the handshake.
+Which of user/extuser/SuperAuthorize are strictly required was not isolated; the server sends all of them
+like CVSecurity. The two changes that demonstrably decide between EVENT 27 and EVENT 0 are the per-door
+`userauthorize` rows (with DevID 1) and the lowercase hex card number.
+Server settings: `Push:AccessDoorMode` (auto/perDoor/mask), `Push:MulCardNumberFormat` (hex), `Push:UseExtUser`,
+`Push:ClearSuperAuthorize`.

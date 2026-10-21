@@ -1,110 +1,69 @@
 =====================================================================
  ZKTeco C3-400 Plus — full test cycle through Swagger
  Controller SN: AJU8261200103      Swagger: http://<pc-ip>:8088/swagger
+ Version: 2026-10-21 — matches what ZKBio CVSecurity sends (verified: door opens)
 =====================================================================
 
-HOW TO USE
-- In Swagger: open the endpoint → "Try it out" → paste the JSON into the request body
-  (or fill the listed parameters) → Execute.
-- Every command answer contains "commandId". Check it with STEP 0.2 before moving on.
-  Wanted result: "status": "Succeeded", "returnCode": 0  (queries return the number of rows).
-- "sn" may be left empty ("") while only one controller is connected.
-- Test data used everywhere:  PIN 1001 · card 1901654 (= hex 1d0456, the test card)
-  · time rule (timezone) 2 · doors 1-4 · DevID 1 (read automatically from the controller).
-- Pull the latest code first (2026-10-20 evening): cards are now written in DECIMAL and the
-  DevID is detected automatically — both learned from what ZKBio CVSecurity writes.
-- Add ?preview=true to any POST/PUT/DELETE to see the command without sending it.
+WHAT MAKES THE C3-400 PLUS OPEN (learned from ZKBio CVSecurity, 2026-10-21)
+- userauthorize: ONE ROW PER DOOR, AuthorizeDoorId = door number 1..4 (NOT a bit mask like 15),
+  plus DevID = the controller's DevProperty ID (1). A mask (15) is accepted with Return=0 but
+  every swipe gives EVENT 27 "card/user not registered".
+- mulcarduser: CardNo in LOWERCASE hex, exactly as the swipe event shows it (1d0456).
+  UPPERCASE (3876F6) is stored but never matches → EVENT 27.
+- user: CardNo= (empty) Pin Password Group StartTime EndTime Name= (empty) SuperAuthorize=0 Disable=0
+- extuser: Pin FunSwitch=0 FirstName=<name> LastName=
+- DATA DELETE SuperAuthorize Pin=<pin>
+The server now sends all of this automatically — the Swagger bodies below are all you need.
 
-Expected wire text is shown under each step ([TAB] = tab character). If a step fails,
-copy the console block of that command (yellow "sending" + green/red "result").
+HOW TO USE
+- Pull the latest code first, then start the server and let the controller reconnect.
+- Swagger: endpoint → "Try it out" → paste the JSON → Execute.
+- Every answer contains "commandId": check it with GET /api/commands/{id}?waitSeconds=15
+  → want "status": "Succeeded", "returnCode": 0 (queries return the row count).
+- "sn" may be left empty while only one controller is connected.
+- Add ?preview=true to see the exact command without sending it.
+- Test data: PIN 1001 · card 0x1d0456 (as the swipe event shows it) · time rule 1 · doors 1–4.
 
 
 ---------------------------------------------------------------------
  STEP 0 — PREPARATION
 ---------------------------------------------------------------------
+0.1  GET /api/devices
+     → "heartbeats" increasing, "devId": 1, "devIdSource": "controller DevProperty table".
+     If devId is missing: POST /api/tables/{table}/query  table = DevProperty
+     If you stored 190 earlier, remove it: PUT /api/devices/{sn}/devid  sn = AJU8261200103, value empty.
 
-0.1  Is the controller connected and polling?
-     GET /api/devices
-     → "heartbeats" must keep increasing when you execute it again after a few seconds.
-     → "capabilitiesSource" should be "registration" or "saved registry file" (not "unknown").
+0.2  Controller clock:  POST /api/device/sync-time   (time rules use the controller clock)
 
-0.2  How to check any command (use after every step)
-     GET /api/commands/{id}
-       id          = commandId from the answer
-       waitSeconds = 15
-     → status Succeeded / Failed, returnCode, meaning, and "queryData" for queries.
-
-0.3  Fix the controller clock (it was 6 h ahead — time rules depend on it)
-     POST /api/device/sync-time
-       sn = AJU8261200103
-     Expected:  C:<id>:SET OPTIONS DateTime=<seconds>
-     Check:     POST /api/device/options/get   with body
-{
-  "sn": "AJU8261200103",
-  "names": ["DateTime"]
-}
-     → GET /api/commands/{id} → queryData shows the controller time.
-
-
-0.4  IMPORTANT — is multi-card mode SWITCHED ON?
-     The controller registers with AccSupportFunList[7]=1, which only means "multi-card is
-     SUPPORTED". Cards in table mulcarduser are only used when MulCardUserFunOn=1 is ACTIVE.
-     If it is 0, every swipe gives EVENT 27 even though the card is in mulcarduser.
-
-     Read it:   POST /api/device/options/get
-{
-  "sn": "AJU8261200103",
-  "names": ["MulCardUserFunOn"]
-}
-     → console prints "Option MulCardUserFunOn = 0/1" (also in GET /api/commands/{id} → queryData)
-
-     Switch it on:   POST /api/device/options/set
-{
-  "sn": "AJU8261200103",
-  "options": { "MulCardUserFunOn": "1" }
-}
-     Expected:  C:<id>:SET OPTIONS MulCardUserFunOn=1
-     Then read it again (above). Reboot the controller if it still says 0.
-
-     Alternative if it will not switch on: keep cards in the user table instead — in STEP 3 add
-     "target": "UserTable"  → DATA UPDATE user CardNo=1901654[TAB]Pin=1001
-
-0.5  Clean up broken test users (only once)
-     The user query showed two rows created earlier with SPACES instead of tabs, e.g.
-       pin=1 Password=234 Group=0 StartTime=0 EndTime=0 Name=Janez Privilege=0 DevId=190
-     The whole text became the PIN. Fields MUST be separated by TAB — in POST /api/raw write [TAB].
-     Easiest clean-up (removes all users, cards and access on the controller):
-     DELETE /api/users/all      confirm = true, sn = AJU8261200103
+0.3  Optional clean start (removes ALL users, cards, access, names on the controller):
+     DELETE /api/users/all   confirm = true
 
 
 ---------------------------------------------------------------------
- STEP 1 — CREATE THE TIME RULE ("timezone" 2)
+ STEP 1 — TIME RULE ("timezone")
 ---------------------------------------------------------------------
-     Mon–Fri 07:00–12:00 and 12:30–17:00, Sat+Sun 08:00–12:00, holidays none.
+1a   24h rule 1, exactly like ZKBio CVSecurity — PUT /api/timerules
+{
+  "sn": "AJU8261200103",
+  "timezoneId": 1,
+  "everyDay": ["00:00-23:59"]
+}
+     Expected:
+     DATA UPDATE timezone TimezoneId=1[TAB]SunTime1=2359[TAB]SunTime2=0[TAB]SunTime3=0[TAB]MonTime1=2359
+       ... [TAB]SatTime1=2359 ... [TAB]Hol1Time1=2359 ... [TAB]Hol3Time1=2359[TAB]Hol3Time2=0[TAB]Hol3Time3=0
 
-     PUT /api/timerules
+1b   Office hours rule 2 (optional) — PUT /api/timerules
 {
   "sn": "AJU8261200103",
   "timezoneId": 2,
   "weekdays": ["07:00-12:00", "12:30-17:00"],
   "weekend": ["08:00-12:00"]
 }
-     Expected:
-     DATA UPDATE timezone TimezoneId=2[TAB]SunTime1=52430000[TAB]SunTime2=0[TAB]SunTime3=0
-       [TAB]MonTime1=45876400[TAB]MonTime2=80610980[TAB]MonTime3=0 ... (Tue–Fri same as Mon)
-       ... [TAB]SatTime1=52430000 ... [TAB]Hol3Time3=0
-     (07:00-12:00 = 700<<16 + 1200 = 45876400; decode any value with GET /api/timerules/decode/{value})
-
-     Tip for testing at the door right now: use a range that includes the current time, e.g.
-{
-  "sn": "AJU8261200103",
-  "timezoneId": 2,
-  "everyDay": ["00:00-23:59"]
-}
+     (07:00-12:00 = 700<<16 + 1200 = 45876400; GET /api/timerules/decode/{value} decodes any value)
 
 
 ---------------------------------------------------------------------
- STEP 2 — ADD THE USER
+ STEP 2 — USER (+ card in the same call)
 ---------------------------------------------------------------------
      POST /api/users
 {
@@ -112,195 +71,117 @@ copy the console block of that command (yellow "sending" + green/red "result").
   "pin": "1001",
   "name": "Test User",
   "password": "1234",
-  "group": 0,
-  "validFrom": "2026-10-20T00:00:00",
-  "validUntil": "2030-12-31T23:59:59"
+  "cardNo": "0x1d0456"
 }
-     Expected:
-     DATA UPDATE user Pin=1001[TAB]Password=1234[TAB]Group=0[TAB]StartTime=861408000
-       [TAB]EndTime=996364799[TAB]Name=Test User
+     Expected (4 commands):
+     DATA UPDATE user CardNo=[TAB]Pin=1001[TAB]Password=1234[TAB]Group=0[TAB]StartTime=0[TAB]EndTime=0[TAB]Name=[TAB]SuperAuthorize=0[TAB]Disable=0
+     DATA UPDATE extuser Pin=1001[TAB]FunSwitch=0[TAB]FirstName=Test User[TAB]LastName=
+     DATA DELETE SuperAuthorize Pin=1001
+     DATA UPDATE mulcarduser Pin=1001[TAB]CardNo=1d0456[TAB]LossCardFlag=0[TAB]CardType=0
 
-     (No validity limit: leave out validFrom / validUntil → StartTime=0, EndTime=0.)
+     Card number: swipe the unknown card first — console shows EVENT 27 ... card=1d0456.
+     Use that value with a 0x prefix ("0x1d0456"), or its decimal value (1901654) — the server
+     always writes lowercase hex.
+     Validity (optional): add "validFrom": "2026-10-21T00:00:00", "validUntil": "2030-12-31T23:59:59".
 
-
----------------------------------------------------------------------
- STEP 3 — ADD THE CARD
----------------------------------------------------------------------
-     IMPORTANT: use the number the CONTROLLER reads, not the number printed on the card.
-     Swipe the card once before adding it. The console shows e.g.
-        EVENT 27 "Card/user not registered" door=4 IN card=1d0456
-     That "card=" value is HEX. Enter it with a 0x prefix or as decimal — the server converts it
-     and writes DECIMAL into mulcarduser, exactly like ZKBio CVSecurity does:
-
-     POST /api/cards
+2b   Extra card for the same user — POST /api/cards
 {
   "sn": "AJU8261200103",
   "pin": "1001",
-  "cardNo": "1901654",
-  "cardType": 0,
-  "lossCardFlag": 0
+  "cardNo": "0x3876f6",
+  "cardType": 1
 }
-     Expected:
-     DATA UPDATE mulcarduser Pin=1001[TAB]CardNo=1901654[TAB]LossCardFlag=0[TAB]CardType=0
-     (hex "1d0456" in mulcarduser is accepted with Return=0 but NEVER matches a swipe → EVENT 27.)
-
-     Why the printed number does not work: 0x1d0456 = 1901654 decimal = Wiegand-26 facility 29,
-     card 1110 — a card may be printed as "1901654", "029,01110" or "0001901654". Typing the
-     printed digits as decimal produces a different hex value and the controller answers EVENT 27.
-     Check what was stored with STEP 6.2: the stored cardno must equal the event's card= value.
+     Expected:  DATA UPDATE mulcarduser Pin=1001[TAB]CardNo=3876f6[TAB]LossCardFlag=0[TAB]CardType=1
 
 
 ---------------------------------------------------------------------
- STEP 4 — GIVE ACCESS (doors 1–4 during time rule 2) — WITH DevID
+ STEP 3 — ACCESS: doors 1–4 during time rule 1
 ---------------------------------------------------------------------
-     The C3-400 Plus reports AccSupportFunList[26]=1 = "tables have a DevID field", so the
-     userauthorize row needs DevID. DevID = the ID of the controller in its OWN DevProperty table
-     (DevProperty ID=1 ... SN=AJU8261200103 → DevID 1). 190 is NOT the controller's DevID.
-     The server reads DevProperty automatically right after the handshake — check with
-     GET /api/devices → "devId": 1, "devIdSource": "controller DevProperty table".
-     Manual check: POST /api/tables/{table}/query  table = DevProperty
-     Override only if needed: PUT /api/devices/{sn}/devid?value=…  (empty value removes the override —
-     REMOVE the 190 you stored earlier: PUT /api/devices/AJU8261200103/devid with no value).
-
      PUT /api/access
 {
   "sn": "AJU8261200103",
   "pin": "1001",
   "doors": [1, 2, 3, 4],
-  "timezoneId": 2,
-  "includeDevId": "Yes"
+  "timezoneId": 1
 }
-     Expected:
-     DATA UPDATE userauthorize Pin=1001[TAB]AuthorizeTimezoneId=2[TAB]AuthorizeDoorId=15[TAB]DevID=1
-     If no DevID is stored for the controller the API answers 400 with instructions instead of guessing.
-     The answer's "notes" says why DevID was / was not sent.
+     Expected (ONE command, one row per door, DevID from DevProperty):
+     DATA UPDATE userauthorize Pin=1001[TAB]AuthorizeTimezoneId=1[TAB]AuthorizeDoorId=1[TAB]DevID=1
+       [LF]Pin=1001[TAB]AuthorizeTimezoneId=1[TAB]AuthorizeDoorId=2[TAB]DevID=1
+       [LF]Pin=1001[TAB]AuthorizeTimezoneId=1[TAB]AuthorizeDoorId=3[TAB]DevID=1
+       [LF]Pin=1001[TAB]AuthorizeTimezoneId=1[TAB]AuthorizeDoorId=4[TAB]DevID=1
 
-     How includeDevId works:
-       "Yes"  → always adds DevID (value: request devId → manual override → DevProperty → appsettings)
-       "Auto" → adds DevID only if the controller reported bit 26 when it registered. The server now
-                saves that in ./devices/AJU8261200103.registry.txt, so it also works after a server
-                restart. If the controller is unknown, the note says "DevID: NOT sent".
-       "No"   → never adds it
-       Giving "devId" alone also forces it to be sent.
+     Only doors 1+2: "doors": [1, 2]  → 2 rows.   Office hours: "timezoneId": 2.
+     The answer's "notes" say which DevID was used and why per-door rows were sent.
 
-     Other door combinations (always with DevID):
-       only doors 1+2:  "doors": [1, 2]    → AuthorizeDoorId=3
-       only door 3:     "doors": [3]       → AuthorizeDoorId=4
-       24/7 rule:       "timezoneId": 1
-
-     Several users at once — PUT /api/access/batch
+     Several users — PUT /api/access/batch
 {
   "sn": "AJU8261200103",
   "items": [
-    { "pin": "1001", "doors": [1, 2], "timezoneId": 2, "includeDevId": "Yes" },
-    { "pin": "1002", "doors": [3, 4], "timezoneId": 2, "includeDevId": "Yes" }
+    { "pin": "1001", "doors": [1, 2, 3, 4], "timezoneId": 1 },
+    { "pin": "1002", "doors": [1], "timezoneId": 2 }
   ]
 }
-     Expected (one command, records separated by LF):
-     DATA UPDATE userauthorize Pin=1001[TAB]AuthorizeTimezoneId=2[TAB]AuthorizeDoorId=3[TAB]DevID=1
-       [LF]Pin=1002[TAB]AuthorizeTimezoneId=2[TAB]AuthorizeDoorId=12[TAB]DevID=1
-     (PIN 1002 must exist as a user first — add it like step 2.)
-
-     Which tables use DevID: per the protocol only the door/device tables (userauthorize, first-card and
-     multi-card opening, DoorParameters, ReaderParameters, …). user, mulcarduser, timezone and holiday
-     have NO DevID field — steps 1–3 stay exactly as they are.
 
 
 ---------------------------------------------------------------------
- STEP 5 — TEST AT THE DOOR (optional but the real proof)
+ STEP 4 — SWIPE
 ---------------------------------------------------------------------
-     Swipe the test card (1901654 / hex 1d0456) at a reader of door 1–4. Console (magenta):
-       EVENT 0  "Normal open after verification" door=1 IN pin=1001 card=...   → OK
-       EVENT 22 "Illegal time zone"         → outside time rule 2 (check clock / rule)
-       EVENT 23 "Access denied"             → no access for this door (step 4)
-       EVENT 27 "Card/user not registered"  → card not found: MulCardUserFunOn (step 0.4), card number
-                                             (compare event card= with step 6.2) or user missing
-       EVENT 29 "Card/user validity expired"→ validFrom/validUntil or clock (step 0.3)
+     EVENT 0  "Normal open after verification" door=1 IN pin=1001 card=1d0456   → OK
+     EVENT 27 "Card/user not registered" → card not in lowercase hex, or no per-door access row
+     EVENT 22 "Illegal time zone"        → outside the time rule / controller clock wrong
+     EVENT 29 "validity expired"         → validFrom/validUntil
 
 
 ---------------------------------------------------------------------
- STEP 6 — QUERY: CHECK THAT EVERYTHING EXISTS ON THE CONTROLLER
+ STEP 5 — QUERY (results: GET /api/commands/{id}?waitSeconds=15 → "queryData")
 ---------------------------------------------------------------------
-     Each query returns a commandId → GET /api/commands/{id}?waitSeconds=15 → "queryData".
-
-6.1  Users          POST /api/users/query        sn = AJU8261200103
-     Expected:  DATA QUERY tablename=user,fielddesc=*,filter=*
-     Look for:  user uid=.. cardno= pin=1001 password=1234 group=0 starttime=861408000 endtime=996364799 name=Test User ...
-
-6.2  Cards          POST /api/cards/query        sn = AJU8261200103
-     Expected:  DATA QUERY tablename=mulcarduser,fielddesc=*,filter=*
-     Look for:  pin=1001 ... cardno=1901654   (decimal of the swipe event's hex card=1d0456)
-
-6.3  Access         POST /api/access/query       sn = AJU8261200103
-     Expected:  DATA QUERY tablename=userauthorize,fielddesc=*,filter=*
-     NOTE: this firmware answers the userauthorize query with empty (NUL) packages — no readable
-     rows. The number in "ID=..&Return=N&CMD=DATA QUERY" is the real row count (CVSecurity: 9).
-
-6.4  Time rules     POST /api/timerules/query    sn = AJU8261200103
-     Expected:  DATA QUERY tablename=timezone,fielddesc=*,filter=*
-     Look for:  timezoneid=2 ... montime1=45876400 ...
-
-6.5  Counts (quick check)
-     POST /api/users/count                        → DATA COUNT user
-     POST /api/tables/{table}/count   table = mulcarduser | userauthorize | timezone
-
-6.6  Only PIN 1001 (filter syntax differs per firmware — try, not required)
-     POST /api/tables/{table}/query
-       table     = user
-       fieldDesc = *
-       filter    = Pin=1001
-     Expected:  DATA QUERY tablename=user,fielddesc=*,filter=Pin=1001
-
-6.7  Stored door events (swipes from step 5)
-     POST /api/transactions/query   newOnly = false
-     Expected:  DATA QUERY tablename=transaction,fielddesc=*,filter=*
+5.1  POST /api/users/query      → user ... pin=1001 password=1234 ... name= superAuthorize=0 disable=0
+5.2  POST /api/cards/query      → mulcarduser pin=1001 cardno=1d0456 losscardflag=0 cardtype=0
+5.3  POST /api/tables/{table}/query   table = extuser   → extuser pin=1001 funswitch=0 firstname=Test User
+5.4  POST /api/access/query     → this firmware returns only NUL padding for userauthorize;
+                                   the real row count is Return=N in the result (1001 on 4 doors = 4 rows)
+5.5  POST /api/timerules/query
+5.6  POST /api/tables/{table}/query   table = SuperAuthorize
+5.7  POST /api/transactions/query     newOnly = false   (stored swipes)
 
 
 ---------------------------------------------------------------------
- STEP 7 — DELETE EVERYTHING (order: access → card → user → time rule)
+ STEP 6 — DELETE
 ---------------------------------------------------------------------
-7.1  Access         DELETE /api/access/{pin}         pin = 1001, sn = AJU8261200103
-     Expected:  DATA DELETE userauthorize Pin=1001
-     (Pin is the delete condition and removes the row for every DevID. If the controller answers
-      an error, send it with DevID through POST /api/raw:
+6.1  Everything of one user in one call:
+     DELETE /api/users/{pin}/complete     pin = 1001, sn = AJU8261200103
+     Expected (in this order):
+     DATA DELETE userauthorize Pin=1001      (all doors)
+     DATA DELETE mulcarduser Pin=1001        (all cards)
+     DATA DELETE extuser Pin=1001
+     DATA DELETE user Pin=1001
+
+6.2  Single parts:
+     Access only          DELETE /api/access/{pin}      pin = 1001
+     One card             DELETE /api/cards/{pin}       pin = 1001, cardNo = 0x1d0456
+                          → DATA DELETE mulcarduser Pin=1001[TAB]CardNo=1d0456
+                          (the CardNo must match the stored text exactly, incl. case — to remove an
+                           old UPPERCASE row use cardNo empty = all cards of the user)
+     Time rule 2          DELETE /api/timerules/{timezoneId}   timezoneId = 2
+     Rule 1               only with allowRule1 = true (other users reference it)
+
+6.3  Check it is gone: repeat STEP 5 — PIN 1001 and card 1d0456 must be gone; swipe → EVENT 27.
+
+
+---------------------------------------------------------------------
+ RAW COMMANDS (POST /api/raw) — rules
+---------------------------------------------------------------------
+- Fields separated by [TAB] (any case: [TAB], [Tab], [tab]), records by [LF].
+- Do NOT paste real tab characters into the JSON (invalid JSON → 400).
+- Field names are case-sensitive: CardNo, not Cardno. The answer warns about wrong names,
+  spaces instead of tabs, and uppercase hex card numbers.
 {
   "sn": "AJU8261200103",
-  "command": "DATA DELETE userauthorize Pin=1001[TAB]DevID=1",
-  "label": "Delete access 1001 with DevID"
+  "command": "DATA UPDATE userauthorize Pin=1001[TAB]AuthorizeTimezoneId=1[TAB]AuthorizeDoorId=1[TAB]DevID=1",
+  "label": "Raw access door 1"
 }
-     )
 
-7.2  Card           DELETE /api/cards/{pin}          pin = 1001, cardNo = 1901654, sn = AJU8261200103
-     Expected:  DATA DELETE mulcarduser Pin=1001[TAB]CardNo=1901654
-     (leave cardNo empty to delete ALL cards of the user: DATA DELETE mulcarduser Pin=1001)
-
-7.3  User           DELETE /api/users/{pin}          pin = 1001, sn = AJU8261200103
-     Expected:  DATA DELETE user Pin=1001
-
-7.4  Time rule      DELETE /api/timerules/{timezoneId}   timezoneId = 2, sn = AJU8261200103
-     Expected:  DATA DELETE timezone TimezoneId=2
-
-     Shortcut for 7.1–7.3 in one call (three commands, same order):
-     DELETE /api/users/{pin}/complete    pin = 1001, sn = AJU8261200103
-
-
----------------------------------------------------------------------
- STEP 8 — QUERY AGAIN: CHECK THAT IT IS GONE
----------------------------------------------------------------------
-     Repeat 6.1–6.4 (or the counts in 6.5).
-     → PIN 1001, card 1901654, the userauthorize row and timezoneid=2 must no longer appear.
-     → Swiping the card now gives EVENT 27 "Card/user not registered".
-
-
----------------------------------------------------------------------
- IF SOMETHING FAILS
----------------------------------------------------------------------
+IF SOMETHING FAILS
      GET /api/commands?sn=AJU8261200103          all commands with status + returnCode
      GET /api/devices/AJU8261200103/traffic      last requests/responses (raw)
-     DELETE /api/devices/AJU8261200103/queue     cancel commands still waiting
-
-     Common return codes:
-       -11  incorrect data parameter          -620  data format incorrect
-       -621 table does not support a field    -629  incorrect table name
-       -13  command does not exist            -708  firmware does not support this command
-     Send the file logs/push-traffic-<date>.log together with the failing commandId.
+     Send logs/push-traffic-<date>.log with the failing commandId.
