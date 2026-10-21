@@ -34,7 +34,7 @@ public sealed class TimeRulesController : ApiBase
         var notes = new List<string>();
         if (r.TimezoneId == 1)
         {
-            notes.Add("Rule 1 is normally the controller's built-in 24/7 rule — overwriting it changes access for everyone using it.");
+            notes.Add("Rule 1 is the 24h rule ZKBio CVSecurity creates (00:00-23:59 every day incl. holidays) — overwriting it changes access for everyone using it.");
         }
 
         // Day order in the protocol: Sun, Mon, Tue, Wed, Thu, Fri, Sat, Hol1, Hol2, Hol3.
@@ -47,9 +47,11 @@ public sealed class TimeRulesController : ApiBase
             Pick(r.Thursday, r.Weekdays, r.EveryDay),
             Pick(r.Friday, r.Weekdays, r.EveryDay),
             Pick(r.Saturday, r.Weekend, r.EveryDay),
-            r.Holiday1 ?? new List<string>(),
-            r.Holiday2 ?? new List<string>(),
-            r.Holiday3 ?? new List<string>()
+            // "everyDay" also covers the three holiday types, exactly like ZKBio CVSecurity's 24h rule
+            // (SunTime1..Hol3Time1 = 2359, i.e. 00:00-23:59).
+            Pick(r.Holiday1, null, r.EveryDay),
+            Pick(r.Holiday2, null, r.EveryDay),
+            Pick(r.Holiday3, null, r.EveryDay)
         };
 
         var names = new[] { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Hol1", "Hol2", "Hol3" };
@@ -90,7 +92,7 @@ public sealed class TimeRulesController : ApiBase
     [HttpDelete("{timezoneId:int}")]
     public IActionResult Delete(int timezoneId, [FromQuery] bool allowRule1 = false, [FromQuery] string? sn = null, [FromQuery] bool preview = false)
     {
-        if (timezoneId == 1 && !allowRule1) return BadRequest(new { error = "Rule 1 is the built-in 24/7 rule. Add allowRule1=true if you really mean it." });
+        if (timezoneId == 1 && !allowRule1) return BadRequest(new { error = "Rule 1 is the 24h rule most users reference. Add allowRule1=true if you really mean it." });
         var (s, _, error) = Target(sn, preview);
         if (error != null) return error;
         return Done(s, preview, new[] { ($"Delete time rule {timezoneId}", $"DATA DELETE timezone TimezoneId={timezoneId}") });

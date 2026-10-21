@@ -225,7 +225,9 @@ public sealed class RecordsController : ApiBase
 
     private static readonly Dictionary<string, string[]> KnownFields = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["user"] = new[] { "CardNo", "Pin", "Password", "Group", "StartTime", "EndTime", "Name", "Privilege", "Disable" },
+        ["user"] = new[] { "CardNo", "Pin", "Password", "Group", "StartTime", "EndTime", "Name", "Privilege", "SuperAuthorize", "Disable" },
+        ["extuser"] = new[] { "Pin", "FunSwitch", "FirstName", "LastName", "PersonalVS" },
+        ["SuperAuthorize"] = new[] { "Pin" },
         ["mulcarduser"] = new[] { "Pin", "CardNo", "LossCardFlag", "CardType", "CardBit", "SiteCode", "IMIE" },
         ["userauthorize"] = new[] { "Pin", "AuthorizeTimezoneId", "AuthorizeDoorId", "DevID", "StartTime", "EndTime" },
         ["timezone"] = SecurityCommands.TimezoneSlots.Prepend("TimezoneId").Concat(new[] { "StartTime", "EndTime" }).ToArray(),
@@ -259,6 +261,11 @@ public sealed class RecordsController : ApiBase
                 else if (exact != key)
                 {
                     yield return $"WARNING: field '{key}' should be written '{exact}' — the controller is case-sensitive and ignores '{key}'.";
+                }
+                else if (exact == "CardNo" && m.Groups[2].Value.Equals("mulcarduser", StringComparison.OrdinalIgnoreCase) &&
+                         part[(i + 1)..].Any(char.IsUpper))
+                {
+                    yield return $"WARNING: '{part}' — write the card in LOWERCASE hex ({part[(i + 1)..].ToLowerInvariant()}); uppercase is stored but never matches a swipe (EVENT 27).";
                 }
             }
         }

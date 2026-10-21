@@ -14,6 +14,13 @@ public sealed class UserRequest
     /// <example>Ana Novak</example>
     public string? Name { get; set; }
 
+    /// <summary>Last name (extuser.LastName). Optional.</summary>
+    public string? LastName { get; set; }
+
+    /// <summary>1 = super user (opens every door, ignores time rules). 0 (default) also clears any old super-user right.</summary>
+    /// <example>0</example>
+    public int SuperAuthorize { get; set; }
+
     /// <summary>Keypad password (up to 6 digits). Empty = none.</summary>
     /// <example>1234</example>
     public string? Password { get; set; }

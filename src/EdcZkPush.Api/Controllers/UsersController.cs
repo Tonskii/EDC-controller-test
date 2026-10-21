@@ -14,10 +14,12 @@ public sealed class UsersController : ApiBase
 
     /// <summary>Add or update a user (optionally with a card in the same call).</summary>
     /// <remarks>
-    /// Wire example (DateFmtFunOn=1, cards in mulcarduser):
+    /// Sends what ZKBio CVSecurity sends (verified on the C3-400 Plus):
     ///
-    ///     C:101:DATA UPDATE user Pin=1001[TAB]Password=1234[TAB]Group=0[TAB]StartTime=861408000[TAB]EndTime=996364799[TAB]Name=Ana Novak
-    ///     C:102:DATA UPDATE mulcarduser Pin=1001[TAB]CardNo=12345678[TAB]LossCardFlag=0[TAB]CardType=0
+    ///     C:101:DATA UPDATE user CardNo=[TAB]Pin=1001[TAB]Password=1234[TAB]Group=0[TAB]StartTime=0[TAB]EndTime=0[TAB]Name=[TAB]SuperAuthorize=0[TAB]Disable=0
+    ///     C:102:DATA UPDATE extuser Pin=1001[TAB]FunSwitch=0[TAB]FirstName=Ana Novak[TAB]LastName=
+    ///     C:103:DATA DELETE SuperAuthorize Pin=1001
+    ///     C:104:DATA UPDATE mulcarduser Pin=1001[TAB]CardNo=1d0456[TAB]LossCardFlag=0[TAB]CardType=0   (only with cardNo)
     ///
     /// Expected result: ID=101&amp;Return=0&amp;CMD=DATA UPDATE
     /// </remarks>
@@ -36,8 +38,11 @@ public sealed class UsersController : ApiBase
 
     /// <summary>Add or update many users in ONE command (records separated by LF).</summary>
     /// <remarks>
-    ///     C:103:DATA UPDATE user Pin=1001[TAB]...[LF]Pin=1002[TAB]...
-    /// Cards given in the batch are sent as a second, separate batch command.
+    ///     C:103:DATA UPDATE user CardNo=[TAB]Pin=1001[TAB]...[LF]CardNo=[TAB]Pin=1002[TAB]...
+    ///     C:104:DATA UPDATE extuser Pin=1001[TAB]...[LF]Pin=1002[TAB]...
+    ///     C:105:DATA DELETE SuperAuthorize Pin=1001[LF]Pin=1002
+    ///     C:106:DATA UPDATE mulcarduser ...   (only if cards are given)
+    /// One multi-record command per table, like ZKBio CVSecurity.
     /// </remarks>
     [HttpPost("batch")]
     public IActionResult AddBatch([FromBody] UserBatchRequest request, [FromQuery] bool preview = false)
@@ -47,26 +52,8 @@ public sealed class UsersController : ApiBase
         if (request.Users.Count == 0) return BadRequest(new { error = "At least one user is required." });
 
         var notes = new List<string>();
-        var userRecords = new List<string>();
-        var cardRecords = new List<string>();
-        foreach (var u in request.Users)
-        {
-            foreach (var (_, text) in BuildUser(u, caps, notes))
-            {
-                // Split the single-record commands back into table + record so they can be merged.
-                const string userPrefix = "DATA UPDATE user ";
-                const string cardPrefix = "DATA UPDATE mulcarduser ";
-                if (text.StartsWith(userPrefix, StringComparison.Ordinal)) userRecords.Add(text[userPrefix.Length..]);
-                else if (text.StartsWith(cardPrefix, StringComparison.Ordinal)) cardRecords.Add(text[cardPrefix.Length..]);
-            }
-        }
-
-        var commands = new List<(string, string)> { ($"Add {userRecords.Count} users", SecurityCommands.Update("user", userRecords)) };
-        if (cardRecords.Count > 0)
-        {
-            commands.Add(($"Add {cardRecords.Count} cards", SecurityCommands.Update("mulcarduser", cardRecords)));
-        }
-
+        var single = request.Users.SelectMany(u => BuildUser(u, caps, notes).ToList()).ToList();
+        var commands = SecurityCommands.Merge(single);
         return Done(sn, preview, commands, notes.Distinct());
     }
 
@@ -84,7 +71,8 @@ public sealed class UsersController : ApiBase
     /// <remarks>
     ///     C:105:DATA DELETE userauthorize Pin=1001
     ///     C:106:DATA DELETE mulcarduser Pin=1001
-    ///     C:107:DATA DELETE user Pin=1001
+    ///     C:107:DATA DELETE extuser Pin=1001
+    ///     C:108:DATA DELETE user Pin=1001
     /// Commands are delivered in order, one per poll by default. The old "delete workflow" service is not needed.
     /// </remarks>
     [HttpDelete("{pin}/complete")]
@@ -99,6 +87,7 @@ public sealed class UsersController : ApiBase
             commands.Add(($"Delete cards of {pin}", $"DATA DELETE mulcarduser Pin={pin}"));
         }
 
+        commands.Add(($"Delete ext. info of {pin}", $"DATA DELETE extuser Pin={pin}"));
         commands.Add(($"Delete user {pin}", $"DATA DELETE user Pin={pin}"));
         return Done(s, preview, commands);
     }
@@ -115,6 +104,7 @@ public sealed class UsersController : ApiBase
         {
             ("Delete all access", "DATA DELETE userauthorize *"),
             ("Delete all cards", "DATA DELETE mulcarduser *"),
+            ("Delete all ext. info", "DATA DELETE extuser *"),
             ("Delete all users", "DATA DELETE user *")
         });
     }
@@ -165,13 +155,27 @@ public sealed class UsersController : ApiBase
             }
         }
 
-        var record = SecurityCommands.UserRecord(r.Pin, r.Name, r.Password, r.Group, start, end, cardInUser, r.Privilege);
-        if (r.Disable.HasValue)
+        // ZKBio CVSecurity (verified working on the C3-400 Plus 2026-10-21) sends, per user:
+        //   DATA UPDATE user CardNo=<empty>\tPin\tPassword\tGroup\tStartTime\tEndTime\tName=<empty>\tSuperAuthorize=0\tDisable=0
+        //   DATA UPDATE extuser Pin\tFunSwitch=0\tFirstName=<name>\tLastName=
+        //   DATA DELETE SuperAuthorize Pin=<pin>
+        //   DATA UPDATE mulcarduser Pin\tCardNo=<lowercase hex>\tLossCardFlag=0\tCardType=0
+        var useExt = Options.UseExtUser;
+        var record = SecurityCommands.UserRecord(r.Pin, useExt ? "" : r.Name, r.Password, r.Group, start, end, cardInUser,
+            r.Privilege, r.SuperAuthorize, r.Disable ?? 0);
+        yield return ($"Add/update user {r.Pin}", SecurityCommands.Update("user", new[] { record }));
+
+        if (useExt)
         {
-            record += $"\tDisable={r.Disable.Value}";
+            notes.Add("Name sent in extuser.FirstName (user.Name left empty) like ZKBio CVSecurity.");
+            yield return ($"Ext. info for {r.Pin}", SecurityCommands.Update("extuser", new[] { SecurityCommands.ExtUserRecord(r.Pin, r.Name, r.LastName) }));
         }
 
-        yield return ($"Add/update user {r.Pin}", SecurityCommands.Update("user", new[] { record }));
+        if (Options.ClearSuperAuthorize && r.SuperAuthorize == 0)
+        {
+            yield return ($"Clear super-user rights of {r.Pin}", SecurityCommands.Delete("SuperAuthorize", new[] { $"Pin={r.Pin}" }));
+        }
+
         if (cardRecord != null)
         {
             yield return ($"Add card for {r.Pin}", SecurityCommands.Update("mulcarduser", new[] { cardRecord }));

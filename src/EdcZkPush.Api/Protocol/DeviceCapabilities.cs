@@ -86,6 +86,9 @@ public sealed class DeviceCapabilities
     }
 
     public bool? SupportsDevIdField => Supports(AccFunBits.TableDevIdField);
+
+    /// <summary>AccSupportFunList[15]: AuthorizeDoorId is a door NUMBER (one row per door), not a bit mask.</summary>
+    public bool? DoorIdIsSingleDoor => Supports(AccFunBits.DoorIdSingleDoor);
     public bool? SupportsTimeRuleValidity => Supports(AccFunBits.TimeRuleValidPeriod);
     public bool? SupportsAccessLevelValidity => Supports(AccFunBits.PermissionGroupValidity);
 
@@ -115,6 +118,7 @@ public static class AccFunBits
 {
     public const int MultipleCardsPerUser = 7;
     public const int AccountCommand = 11;
+    public const int DoorIdSingleDoor = 15;
     public const int TableDevIdField = 26;
     public const int Wiegand2 = 33;
     public const int SendQrCode = 35;

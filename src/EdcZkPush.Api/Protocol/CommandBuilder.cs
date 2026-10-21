@@ -14,35 +14,75 @@ public static class SecurityCommands
     public static string Fields(params (string Key, object? Value)[] fields) =>
         string.Join(Tab, fields.Select(f => $"{f.Key}={Clean(f.Value)}"));
 
+    /// <summary>
+    /// Merge many single-record commands ("DATA UPDATE user ...", "DATA DELETE SuperAuthorize Pin=1", ...) into one
+    /// multi-record command per verb+table, keeping the order in which each table first appears.
+    /// </summary>
+    public static List<(string Label, string Text)> Merge(IEnumerable<(string Label, string Text)> commands)
+    {
+        var order = new List<string>();
+        var groups = new Dictionary<string, List<string>>();
+        var passthrough = new List<(string, string)>();
+        foreach (var (label, text) in commands)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(text, @"^(DATA (?:UPDATE|DELETE) \S+) (.*)$", System.Text.RegularExpressions.RegexOptions.Singleline);
+            if (!m.Success)
+            {
+                passthrough.Add((label, text));
+                continue;
+            }
+
+            var key = m.Groups[1].Value;
+            if (!groups.TryGetValue(key, out var list))
+            {
+                groups[key] = list = new List<string>();
+                order.Add(key);
+            }
+
+            list.AddRange(m.Groups[2].Value.Split(Lf));
+        }
+
+        var result = order.Select(k => ($"{k} ({groups[k].Count} records)", $"{k} {string.Join(Lf, groups[k])}")).ToList();
+        result.AddRange(passthrough);
+        return result;
+    }
+
     public static string Update(string table, IEnumerable<string> records) =>
         $"DATA UPDATE {table} {string.Join(Lf, records)}";
 
     public static string Delete(string table, IEnumerable<string> conditions) =>
         $"DATA DELETE {table} {string.Join(Lf, conditions)}";
 
-    /// <summary>DATA UPDATE user — field order as in the protocol document.</summary>
+    /// <summary>
+    /// DATA UPDATE user — exactly the field set ZKBio CVSecurity sends to the C3-400 Plus:
+    /// CardNo= Pin= Password= Group= StartTime= EndTime= Name= SuperAuthorize= Disable= (Privilege only if given).
+    /// </summary>
     public static string UserRecord(string pin, string? name, string? password, int group, string startTime, string endTime,
-        string? cardNo, int? privilege)
+        string? cardNo, int? privilege, int superAuthorize = 0, int disable = 0)
     {
-        var fields = new List<(string, object?)>();
-        if (cardNo != null)
+        var fields = new List<(string, object?)>
         {
-            fields.Add(("CardNo", cardNo));
-        }
-
-        fields.Add(("Pin", pin));
-        fields.Add(("Password", password ?? ""));
-        fields.Add(("Group", group));
-        fields.Add(("StartTime", startTime));
-        fields.Add(("EndTime", endTime));
-        fields.Add(("Name", name ?? ""));
+            ("CardNo", cardNo ?? ""),
+            ("Pin", pin),
+            ("Password", password ?? ""),
+            ("Group", group),
+            ("StartTime", startTime),
+            ("EndTime", endTime),
+            ("Name", name ?? ""),
+        };
         if (privilege.HasValue)
         {
             fields.Add(("Privilege", privilege.Value));
         }
 
+        fields.Add(("SuperAuthorize", superAuthorize));
+        fields.Add(("Disable", disable));
         return Fields(fields.ToArray());
     }
+
+    /// <summary>DATA UPDATE extuser — as ZKBio CVSecurity sends it: Pin FunSwitch FirstName LastName.</summary>
+    public static string ExtUserRecord(string pin, string? firstName, string? lastName, int funSwitch = 0) =>
+        Fields(("Pin", pin), ("FunSwitch", funSwitch), ("FirstName", firstName ?? ""), ("LastName", lastName ?? ""));
 
     /// <summary>DATA UPDATE mulcarduser — one row per card.</summary>
     public static string CardRecord(string pin, string cardNo, int lossCardFlag, int cardType, int? cardBit, string? siteCode)

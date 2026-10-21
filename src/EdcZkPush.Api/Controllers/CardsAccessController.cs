@@ -122,17 +122,21 @@ public sealed class AccessController : ApiBase
 
     /// <summary>Give a user access to doors during a time rule.</summary>
     /// <remarks>
-    /// All 4 doors of a C3-400 Plus, time rule 2, DevID (C3-400 Plus reports AccSupportFunList[26]=1):
+    /// All 4 doors of a C3-400 Plus, time rule 1 — one record per door, like ZKBio CVSecurity (verified working):
     ///
-    ///     {"pin":"1001","doors":[1,2,3,4],"timezoneId":2,"includeDevId":"Yes"}
-    ///     C:114:DATA UPDATE userauthorize Pin=1001[TAB]AuthorizeTimezoneId=2[TAB]AuthorizeDoorId=15[TAB]DevID=190
+    ///     {"pin":"1001","doors":[1,2,3,4],"timezoneId":1}
+    ///     C:114:DATA UPDATE userauthorize Pin=1001[TAB]AuthorizeTimezoneId=1[TAB]AuthorizeDoorId=1[TAB]DevID=1
+    ///           [LF]Pin=1001[TAB]AuthorizeTimezoneId=1[TAB]AuthorizeDoorId=2[TAB]DevID=1
+    ///           [LF]Pin=1001[TAB]AuthorizeTimezoneId=1[TAB]AuthorizeDoorId=3[TAB]DevID=1
+    ///           [LF]Pin=1001[TAB]AuthorizeTimezoneId=1[TAB]AuthorizeDoorId=4[TAB]DevID=1
     ///
     /// includeDevId: Auto = add DevID when the controller reported support at registration (remembered across
     /// server restarts in ./devices), Yes = always, No = never.
     /// The VALUE is per controller: devId in the request → PUT /api/devices/{sn}/devid → appsettings Push:DevIds[sn].
     ///
-    /// AuthorizeDoorId is a bit mask: door1=1, door2=2, door3=4, door4=8 (15 = all). The old API rejected values above 3
-    /// and the old bulk push always sent 3 (doors 1+2 only).
+    /// AuthorizeDoorId: controllers with AccSupportFunList[15]=1 (C3-400 Plus) want the door NUMBER, one row per door.
+    /// Older controllers (C3-200 Pro) take a bit mask: door1=1, door2=2, door3=4, door4=8. Push:AccessDoorMode overrides.
+    /// DevID = the controller's DevProperty ID (1), read automatically after the handshake.
     /// </remarks>
     [HttpPut]
     public IActionResult Set([FromBody] AccessRequest request, [FromQuery] bool preview = false)
@@ -183,7 +187,6 @@ public sealed class AccessController : ApiBase
         if (r.TimezoneId < 1) throw new ArgumentException("TimezoneId must be 1 or higher.");
 
         var mask = DoorMask(r.Doors, r.DoorMask, caps);
-        notes.Add($"AuthorizeDoorId={mask} → doors {string.Join(",", Enumerable.Range(1, 8).Where(d => (mask & (1 << (d - 1))) != 0))}.");
 
         bool include;
         string why;
@@ -249,6 +252,24 @@ public sealed class AccessController : ApiBase
             notes.Add("Access validity ignored: device did not report AccSupportFunList[62]=1 (use IncludeValidity=Yes to force).");
         }
 
+        var perDoor = Options.AccessDoorMode.ToLowerInvariant() switch
+        {
+            "perdoor" => true,
+            "mask" => false,
+            _ => caps.DoorIdIsSingleDoor == true
+        };
+
+        if (perDoor)
+        {
+            // AccSupportFunList[15]=1: one row per door, AuthorizeDoorId = door NUMBER (what ZKBio CVSecurity sends;
+            // a mask like 15 is accepted with Return=0 but matches no door → EVENT 27 on every swipe).
+            var doors = Enumerable.Range(1, 16).Where(d => (mask & (1 << (d - 1))) != 0).ToList();
+            notes.Add($"AuthorizeDoorId per door ({string.Join(",", doors)}): controller reports AccSupportFunList[15]=1 (Push:AccessDoorMode={Options.AccessDoorMode}).");
+            return ($"Access {r.Pin} → doors {string.Join(",", doors)}, rule {r.TimezoneId}",
+                SecurityCommands.Update("userauthorize", doors.Select(d => SecurityCommands.AccessRecord(r.Pin, r.TimezoneId, d, devId, start, end))));
+        }
+
+        notes.Add($"AuthorizeDoorId as bit mask {mask} (Push:AccessDoorMode={Options.AccessDoorMode}).");
         return ($"Access {r.Pin} → mask {mask}, rule {r.TimezoneId}",
             SecurityCommands.Update("userauthorize", new[] { SecurityCommands.AccessRecord(r.Pin, r.TimezoneId, mask, devId, start, end) }));
     }

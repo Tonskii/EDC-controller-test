@@ -30,7 +30,7 @@ public static class CapabilityReport
 
         yield return c.CardsInMulCardUser switch
         {
-            true => "Cards: MulCardUserFunOn=1 → cards go to table 'mulcarduser' (card number in decimal by default, Push:MulCardNumberFormat).",
+            true => "Cards: MulCardUserFunOn=1 → cards go to table 'mulcarduser' as lowercase hex (as in the swipe event).",
             false => "Cards: multi-card OFF (MulCardUserFunOn=0 or not supported) → cards go into user.CardNo.",
             _ => "Cards: multi-card SUPPORTED (AccSupportFunList[7]=1) but whether it is SWITCHED ON is unknown → " +
                  "check with GET OPTIONS MulCardUserFunOn. Until then cards go to 'mulcarduser'; if swipes give EVENT 27, " +
@@ -38,7 +38,9 @@ public static class CapabilityReport
         };
 
         var doors = c.LockCount ?? 4;
-        yield return $"Doors: {doors} → userauthorize AuthorizeDoorId bit mask 1..{(1 << doors) - 1} (old server only allowed 1..3).";
+        yield return c.DoorIdIsSingleDoor == true
+            ? $"Doors: {doors}, AccSupportFunList[15]=1 → userauthorize gets ONE ROW PER DOOR with AuthorizeDoorId=1..{doors} (like ZKBio CVSecurity)."
+            : $"Doors: {doors} → userauthorize AuthorizeDoorId bit mask 1..{(1 << doors) - 1}.";
 
         yield return c.SupportsDevIdField == true
             ? (opt.AutoDetectDevId

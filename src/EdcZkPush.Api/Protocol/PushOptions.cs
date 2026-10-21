@@ -55,10 +55,24 @@ public sealed class PushOptions
     public Dictionary<string, int> DevIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// How CardNo is written to mulcarduser: "decimal" (what ZKBio CVSecurity writes and the C3-400 Plus
-    /// firmware 19.x matches, e.g. 1901654) or "hex" (what the old server sent, worked on the C3-200 Pro, e.g. 1d0456).
+    /// How CardNo is written to mulcarduser. "hex" = lowercase hex exactly as the swipe event reports it
+    /// (1d0456) — VERIFIED on the C3-400 Plus 2026-10-21: lowercase matches, UPPERCASE (3876F6) gives EVENT 27.
+    /// "decimal" is kept only for experiments.
     /// </summary>
-    public string MulCardNumberFormat { get; set; } = "decimal";
+    public string MulCardNumberFormat { get; set; } = "hex";
+
+    /// <summary>
+    /// userauthorize door encoding. "auto" = one row per door with AuthorizeDoorId=1..4 when the controller reports
+    /// AccSupportFunList[15]=1 ("DoorID represents one door"), otherwise the bit mask. "perDoor" / "mask" force it.
+    /// ZKBio CVSecurity sends one row per door to the C3-400 Plus.
+    /// </summary>
+    public string AccessDoorMode { get; set; } = "auto";
+
+    /// <summary>Send the name in table extuser (FirstName) like ZKBio CVSecurity does, leaving user.Name empty.</summary>
+    public bool UseExtUser { get; set; } = true;
+
+    /// <summary>Send "DATA DELETE SuperAuthorize Pin=.." with every user (ZKBio CVSecurity does — clears super-user rights).</summary>
+    public bool ClearSuperAuthorize { get; set; } = true;
 
     /// <summary>After the handshake, query table DevProperty once and use its ID as the controller's DevID.</summary>
     public bool AutoDetectDevId { get; set; } = true;

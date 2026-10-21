@@ -51,7 +51,7 @@ var registryBody = string.Join(",",
     "~MaxAttLogCount=500000", "IPAddress=192.168.1.201", "NetMask=255.255.255.0", "GATEIPAddress=0.0.0.0",
     "DateFmtFunOn=1", "MulCardUserFunOn=1", "StringPinFunOn=0", "UserNameFunOn=1", "CmdFormat=0", "DevNSLevel=0",
     "WGRuleVer=2.0", "RemoteOpenDoorExFunOn=1",
-    "AccSupportFunList=" + AccBits(67, 1, 2, 7, 11, 26, 33, 35, 40, 47, 49, 60, 61, 62),
+    "AccSupportFunList=" + AccBits(67, 1, 2, 5, 7, 11, 15, 26, 33, 35, 40, 47, 49, 60, 61, 62),
     "MultiStageControlFunOn=0", "MasterControlOn=0", "SubControlOn=0", "IsSupportQRcode=1", "QRCodeEnable=1");
 var reg = await Device(HttpMethod.Post, $"/iclock/registry?SN={sn}", registryBody);
 var regCode = Regex.Match(reg, @"RegistryCode=(\S+)").Groups[1].Value;
@@ -192,6 +192,7 @@ Check(setDevId.IsSuccessStatusCode, "store DevID 190 for the controller");
 ids.AddRange(await Call(HttpMethod.Put, "/api/access", new { pin = "1001", doors = new[] { 1 }, timezoneId = 2, includeDevId = "Yes" }, "access using stored DevID"));
 ids.AddRange(await Call(HttpMethod.Put, "/api/access/batch", new { items = new object[] { new { pin = "1001", doors = new[] { 1, 2 }, timezoneId = 2, devId = 1 }, new { pin = "1002", doors = new[] { 3, 4 }, timezoneId = 2, devId = 1 } } }, "access batch with DevID"));
 ids.AddRange(await Call(HttpMethod.Put, "/api/timerules", new { timezoneId = 2, weekdays = new[] { "07:00-12:00", "12:30-17:00" }, weekend = new[] { "08:00-12:00" } }, "time rule"));
+ids.AddRange(await Call(HttpMethod.Put, "/api/timerules", new { timezoneId = 1, everyDay = new[] { "00:00-23:59" } }, "24h rule 1 like CVSecurity"));
 ids.AddRange(await Call(HttpMethod.Put, "/api/holidays", new { date = "2026-12-25", holidayType = 1, loop = 1 }, "holiday"));
 ids.AddRange(await Call(HttpMethod.Post, "/api/cards", new { pin = "1001", cardNo = "0xABCDEF" }, "second card"));
 ids.AddRange(await Call(HttpMethod.Post, "/api/device/doors/3/open?seconds=15", null, "open door 3"));
@@ -230,12 +231,15 @@ if (queryIds.Count > 0)
 
 lock (seenWire)
 {
-    Check(seenWire.Any(w => w.Contains("DATA UPDATE user Pin=1001\tPassword=1234\tGroup=0\tStartTime=861408000\tEndTime=996364799\tName=Ana Novak")), "user command format + encoded dates");
-    Check(seenWire.Any(w => w.Contains("DATA UPDATE mulcarduser Pin=1001\tCardNo=12345678\tLossCardFlag=0\tCardType=0")), "card 12345678 sent as decimal to mulcarduser (CVSecurity format)");
-    Check(seenWire.Any(w => w.EndsWith("DATA UPDATE userauthorize Pin=1001\tAuthorizeTimezoneId=1\tAuthorizeDoorId=15\tDevID=7")), "4-door mask 15 with auto-detected DevID 7");
-    Check(seenWire.Any(w => w.EndsWith("DATA UPDATE userauthorize Pin=1001\tAuthorizeTimezoneId=2\tAuthorizeDoorId=15\tDevID=1")), "explicit DevID=1 appended");
+    Check(seenWire.Any(w => w.EndsWith("DATA UPDATE user CardNo=\tPin=1001\tPassword=1234\tGroup=0\tStartTime=861408000\tEndTime=996364799\tName=\tSuperAuthorize=0\tDisable=0")), "user command in ZKBio CVSecurity format (encoded dates)");
+    Check(seenWire.Any(w => w.EndsWith("DATA UPDATE extuser Pin=1001\tFunSwitch=0\tFirstName=Ana Novak\tLastName=")), "name sent in extuser");
+    Check(seenWire.Any(w => w.EndsWith("DATA DELETE SuperAuthorize Pin=1001")), "SuperAuthorize cleared");
+    Check(seenWire.Any(w => w.EndsWith("DATA UPDATE mulcarduser Pin=1001\tCardNo=bc614e\tLossCardFlag=0\tCardType=0")), "card 12345678 sent as lowercase hex bc614e");
+    Check(seenWire.Any(w => w.EndsWith("DATA UPDATE userauthorize Pin=1001\tAuthorizeTimezoneId=1\tAuthorizeDoorId=1\tDevID=7\nPin=1001\tAuthorizeTimezoneId=1\tAuthorizeDoorId=2\tDevID=7\nPin=1001\tAuthorizeTimezoneId=1\tAuthorizeDoorId=3\tDevID=7\nPin=1001\tAuthorizeTimezoneId=1\tAuthorizeDoorId=4\tDevID=7")), "one access row per door with auto-detected DevID 7");
+    Check(seenWire.Any(w => w.EndsWith("Pin=1001\tAuthorizeTimezoneId=2\tAuthorizeDoorId=4\tDevID=1")), "explicit DevID=1 used");
     Check(seenWire.Any(w => w.EndsWith("DATA UPDATE userauthorize Pin=1001\tAuthorizeTimezoneId=2\tAuthorizeDoorId=1\tDevID=190")), "stored per-controller DevID 190 used");
-    Check(seenWire.Any(w => w.EndsWith("DATA UPDATE userauthorize Pin=1001\tAuthorizeTimezoneId=2\tAuthorizeDoorId=3\tDevID=1\nPin=1002\tAuthorizeTimezoneId=2\tAuthorizeDoorId=12\tDevID=1")), "batch access with DevID per record");
+    Check(seenWire.Any(w => w.EndsWith("DATA UPDATE userauthorize Pin=1001\tAuthorizeTimezoneId=2\tAuthorizeDoorId=1\tDevID=1\nPin=1001\tAuthorizeTimezoneId=2\tAuthorizeDoorId=2\tDevID=1\nPin=1002\tAuthorizeTimezoneId=2\tAuthorizeDoorId=3\tDevID=1\nPin=1002\tAuthorizeTimezoneId=2\tAuthorizeDoorId=4\tDevID=1")), "batch access, one row per door");
+    Check(seenWire.Any(w => w.EndsWith("DATA UPDATE timezone TimezoneId=1\tSunTime1=2359\tSunTime2=0\tSunTime3=0\tMonTime1=2359\tMonTime2=0\tMonTime3=0\tTueTime1=2359\tTueTime2=0\tTueTime3=0\tWedTime1=2359\tWedTime2=0\tWedTime3=0\tThuTime1=2359\tThuTime2=0\tThuTime3=0\tFriTime1=2359\tFriTime2=0\tFriTime3=0\tSatTime1=2359\tSatTime2=0\tSatTime3=0\tHol1Time1=2359\tHol1Time2=0\tHol1Time3=0\tHol2Time1=2359\tHol2Time2=0\tHol2Time3=0\tHol3Time1=2359\tHol3Time2=0\tHol3Time3=0")), "24h rule identical to ZKBio CVSecurity");
     Check(seenWire.Any(w => w.Contains("MonTime1=45876400\tMonTime2=80610980") && w.Contains("SunTime1=52430000")), "time rule encoding");
     Check(seenWire.Any(w => w.EndsWith("CONTROL DEVICE 0103010F")), "open door 3 for 15 s uses hex 0F");
     Check(seenWire.Any(w => w.Contains("REMOTE OPENDOOREX id=1\topentime=5\tpin=1001")), "REMOTE OPENDOOREX format");
