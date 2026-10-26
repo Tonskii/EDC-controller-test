@@ -7,6 +7,7 @@ what it sends, and drive every basic command from Swagger.
 * Why the old `Piramida.Edc.API` code may not work with the C3-400 Plus, and what changed between the protocol
   documents: **[docs/PROTOCOL-COMPARISON.md](docs/PROTOCOL-COMPARISON.md)**
 * Step-by-step Swagger test (add → query → delete): **[docs/FULL-CYCLE-TEST.txt](docs/FULL-CYCLE-TEST.txt)**
+* Elevator controller (floors) test steps: **[docs/ELEVATOR-TEST.txt](docs/ELEVATOR-TEST.txt)**
 * A fake controller (`tools/EdcZkPush.Simulator`) lets you try everything without hardware; GitHub Actions runs it
   as a self test on every push.
 
@@ -65,6 +66,7 @@ Leave **`sn`** empty when one controller is connected. Follow a command with `GE
 | 4 · Access | `PUT /api/access`, `PUT /api/access/batch`, `DELETE /api/access/{pin}`, `POST /api/access/query` |
 | 5 · Time rules & holidays | `PUT /api/timerules`, `DELETE /api/timerules/{id}`, `POST /api/timerules/query`, `GET /api/timerules/decode/{value}`, `PUT/DELETE /api/holidays` |
 | 6 · Doors, device & options | open / open-ex / close / normal-open / lock door, aux output, cancel alarm, reboot, sync time, `options/get`, `options/set` |
+| 8 · Elevator (floors) | `PUT /api/elevator/access`, `PUT /api/elevator/access/batch`, `DELETE /api/elevator/access/{pin}`, `POST /api/elevator/access/query`, `POST /api/elevator/floors/release`, `POST /api/elevator/setup` |
 | 7 · Records & raw | `POST /api/transactions/query`, `POST /api/tables/{table}/count`, `POST /api/tables/{table}/query`, `DELETE /api/transactions`, `POST /api/raw` |
 
 ### Minimal "give someone access" sequence

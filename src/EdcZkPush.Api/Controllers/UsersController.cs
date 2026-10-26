@@ -69,19 +69,21 @@ public sealed class UsersController : ApiBase
 
     /// <summary>Delete a user completely: access → cards → user (the order the protocol document uses).</summary>
     /// <remarks>
-    ///     C:105:DATA DELETE userauthorize Pin=1001
+    ///     C:105:DATA DELETE userauthorize Pin=1001      (elevator controller: usereleauthorize)
     ///     C:106:DATA DELETE mulcarduser Pin=1001
     ///     C:107:DATA DELETE extuser Pin=1001
     ///     C:108:DATA DELETE user Pin=1001
     /// Commands are delivered in order, one per poll by default. The old "delete workflow" service is not needed.
     /// </remarks>
     [HttpDelete("{pin}/complete")]
-    public IActionResult DeleteComplete(string pin, [FromQuery] string? sn = null, [FromQuery] bool preview = false)
+    public IActionResult DeleteComplete(string pin, [FromQuery] string? sn = null, [FromQuery] bool? elevator = null, [FromQuery] bool preview = false)
     {
         var (s, caps, error) = Target(sn, preview);
         if (error != null) return error;
 
-        var commands = new List<(string, string)> { ($"Delete access of {pin}", $"DATA DELETE userauthorize Pin={pin}") };
+        // Elevator controllers keep floor rights in usereleauthorize instead of userauthorize.
+        var accessTable = (elevator ?? caps.IsElevator) ? "usereleauthorize" : "userauthorize";
+        var commands = new List<(string, string)> { ($"Delete access of {pin}", $"DATA DELETE {accessTable} Pin={pin}") };
         if (caps.CardsInMulCardUser != false)
         {
             commands.Add(($"Delete cards of {pin}", $"DATA DELETE mulcarduser Pin={pin}"));
@@ -95,14 +97,16 @@ public sealed class UsersController : ApiBase
     /// <summary>Delete ALL users (table wipe). Requires confirm=true.</summary>
     /// <remarks>    C:108:DATA DELETE user *</remarks>
     [HttpDelete("all")]
-    public IActionResult DeleteAll([FromQuery] bool confirm, [FromQuery] string? sn = null, [FromQuery] bool preview = false)
+    public IActionResult DeleteAll([FromQuery] bool confirm, [FromQuery] string? sn = null, [FromQuery] bool? elevator = null, [FromQuery] bool preview = false)
     {
         if (!confirm && !preview) return BadRequest(new { error = "Add confirm=true — this removes every user from the controller." });
-        var (s, _, error) = Target(sn, preview);
+        var (s, caps, error) = Target(sn, preview);
         if (error != null) return error;
+        var accessTable = (elevator ?? caps.IsElevator) ? "usereleauthorize" : "userauthorize";
         return Done(s, preview, new[]
         {
-            ("Delete all access", "DATA DELETE userauthorize *"),
+            ("Delete all access", $"DATA DELETE {accessTable} *"),
+            ("Delete all super-user rights", "DATA DELETE SuperAuthorize *"),
             ("Delete all cards", "DATA DELETE mulcarduser *"),
             ("Delete all ext. info", "DATA DELETE extuser *"),
             ("Delete all users", "DATA DELETE user *")

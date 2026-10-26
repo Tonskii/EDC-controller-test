@@ -1,0 +1,213 @@
+=====================================================================
+ ZKTeco ELEVATOR controller — test cycle through Swagger
+ Controller SN: WSQ2260800005 (MachineType 420, 16 floor relays, DevID 1)
+ Based on: ZKBio CVSecurity "Device Commands" export 2026-10-26 (all commands Return 0)
+=====================================================================
+
+WHAT THE LOG SHOWS
+- Same Security PUSH protocol, same handshake, same command queue as the C3-400 Plus.
+- Users, cards, names and time rules use exactly the same tables and commands as the doors:
+    DATA UPDATE user CardNo=[TAB]Pin=1[TAB]Password=[TAB]Group=0[TAB]StartTime=0[TAB]EndTime=0[TAB]Name=[TAB]SuperAuthorize=0
+    DATA UPDATE extuser Pin=1[TAB]FunSwitch=0[TAB]FirstName=Test[TAB]LastName=
+    DATA DELETE SuperAuthorize Pin=1
+    DATA UPDATE mulcarduser Pin=1[TAB]CardNo=1d0456[TAB]LossCardFlag=0[TAB]CardType=0     (lowercase hex)
+    DATA UPDATE timezone TimezoneId=1[TAB]SunTime1=2359 ... Hol3Time3=0                     (24h rule)
+  → /api/users, /api/cards, /api/timerules work unchanged. (The elevator user row has no
+    Disable= field; the server now only sends it to controllers that report DisableUserFunOn=1.)
+- ONLY the access table is different — floors instead of doors:
+    DATA UPDATE usereleauthorize Pin=1[TAB]AuthorizeTimezoneId=1[TAB]AuthorizeFloorId=0[TAB]AuthorizeFloors=FFFF[TAB]DevID=1[TAB]StartTime=0[TAB]EndTime=0
+    AuthorizeFloors = hex bit mask, floor 1 = lowest bit: FFFF = floors 1-16, 180 = floors 8+9.
+    ONE row per user (doors on the C3-400 Plus need one row per door — floors do not).
+- Remote floor release (button in CVSecurity), returned 1 = OK:
+    CONTROL DEVICE 11 + 64 hex digits (one bit per floor) + 01 + 05 (seconds)
+- One-time controller setup CVSecurity sends when the controller is added / fully synced:
+    DevProperty ID=1 ... MachineType=420 ... SN=WSQ2260800005      → DevID 1
+    DoorProperty ID=1..16 Address=1..16                              → the 16 floor relays
+    DoorParameters per relay: DoorDrivertime=5, DoorKeepOpenTimeZone=0, DoorValidTZ=1
+    SET OPTIONS EleNegativeFloorCount=0
+    ReaderProperty / ReaderParameters / WGFormat / DefaultWGFormat     (reader + Wiegand config)
+  A controller that CVSecurity already set up keeps all of this — no need to resend it.
+
+New Swagger group "8 · Elevator (floors)":
+  PUT    /api/elevator/access            floor rights of one user
+  PUT    /api/elevator/access/batch      floor rights of many users (one command)
+  DELETE /api/elevator/access/{pin}      remove floor rights (pin = * removes everybody's)
+  POST   /api/elevator/access/query      read usereleauthorize back
+  POST   /api/elevator/floors/release    remote release of floors
+  POST   /api/elevator/setup             floor relays + negative floors (only for a new/reset controller)
+
+
+---------------------------------------------------------------------
+ STEP 0 — CONNECT THE ELEVATOR CONTROLLER TO THE TEST SERVER
+---------------------------------------------------------------------
+0.1  Controller web UI / CVSecurity: set the PUSH server to the PC running the test server, port 8088.
+     (A controller can only push to ONE server — while it points to us, CVSecurity sees it offline.)
+0.2  Watch the console: registry block (cyan). It should say
+       "ELEVATOR CONTROLLER (MachineType=420): floor access via /api/elevator/access ..."
+     Please send me that registry block — we have not seen this controller's capabilities yet.
+0.3  GET /api/devices  → WSQ2260800005 with "devId": 1, "devIdSource": "controller DevProperty table"
+     (if not: POST /api/tables/{table}/query  table = DevProperty,  sn = WSQ2260800005)
+0.4  POST /api/device/sync-time    sn = WSQ2260800005
+     If two controllers are connected, "sn" is REQUIRED in every call from now on.
+
+
+---------------------------------------------------------------------
+ STEP 1 — TIME RULE (same as doors)
+---------------------------------------------------------------------
+     PUT /api/timerules
+{
+  "sn": "WSQ2260800005",
+  "timezoneId": 1,
+  "everyDay": ["00:00-23:59"]
+}
+     Expected: DATA UPDATE timezone TimezoneId=1[TAB]SunTime1=2359[TAB]SunTime2=0 ... (identical to CVSecurity)
+
+     Optional office-hours rule 2:
+{
+  "sn": "WSQ2260800005",
+  "timezoneId": 2,
+  "weekdays": ["07:00-17:00"]
+}
+
+
+---------------------------------------------------------------------
+ STEP 2 — USER + CARD (same as doors)
+---------------------------------------------------------------------
+     Swipe the card at the elevator reader first: console shows EVENT 27 ... card=<hex>.
+     POST /api/users
+{
+  "sn": "WSQ2260800005",
+  "pin": "1",
+  "name": "Test",
+  "cardNo": "0x1d0456"
+}
+     Expected:
+     DATA UPDATE user CardNo=[TAB]Pin=1[TAB]Password=[TAB]Group=0[TAB]StartTime=0[TAB]EndTime=0[TAB]Name=[TAB]SuperAuthorize=0
+     DATA UPDATE extuser Pin=1[TAB]FunSwitch=0[TAB]FirstName=Test[TAB]LastName=
+     DATA DELETE SuperAuthorize Pin=1
+     DATA UPDATE mulcarduser Pin=1[TAB]CardNo=1d0456[TAB]LossCardFlag=0[TAB]CardType=0
+
+
+---------------------------------------------------------------------
+ STEP 3 — FLOOR ACCESS
+---------------------------------------------------------------------
+3a   All 16 floors (exactly what CVSecurity sent) — PUT /api/elevator/access
+{
+  "sn": "WSQ2260800005",
+  "pin": "1",
+  "allFloors": true,
+  "floorCount": 16,
+  "timezoneId": 1
+}
+     Expected:
+     DATA UPDATE usereleauthorize Pin=1[TAB]AuthorizeTimezoneId=1[TAB]AuthorizeFloorId=0[TAB]AuthorizeFloors=FFFF[TAB]DevID=1[TAB]StartTime=0[TAB]EndTime=0
+
+3b   Only some floors — e.g. floors 1, 3 and 5:
+{
+  "sn": "WSQ2260800005",
+  "pin": "1",
+  "floors": [1, 3, 5],
+  "timezoneId": 1
+}
+     Expected: ... AuthorizeFloors=15 ...   (binary 1 0101 = floors 1, 3, 5)
+     Other values: [8, 9] → 180,  [1] → 1,  [16] → 8000,  [1..8] → FF
+
+3c   Direct floor (lift goes to floor 4 automatically after the swipe — optional):
+     add  "directFloor": 4   → AuthorizeFloorId=4
+
+3d   Several users at once — PUT /api/elevator/access/batch
+{
+  "sn": "WSQ2260800005",
+  "items": [
+    { "pin": "1", "floors": [1, 2, 3], "timezoneId": 1 },
+    { "pin": "2", "allFloors": true, "floorCount": 16, "timezoneId": 2 }
+  ]
+}
+
+     Updating floors: just send PUT /api/elevator/access again with the new floor list.
+     If the old floors stay active as well, delete first (STEP 7.1) and then send again — please
+     report which behaviour you see.
+
+
+---------------------------------------------------------------------
+ STEP 4 — TEST IN THE LIFT
+---------------------------------------------------------------------
+     Swipe the card at the elevator reader → console (magenta) shows the event; then press a floor button.
+     - Allowed floor   → button works for DoorDrivertime (5 s)
+     - Floor not in AuthorizeFloors → button stays dead
+     - EVENT 27 → card/user not found (card number in lowercase hex? user sent to the right SN?)
+     - EVENT 22 → outside the time rule (check controller clock, STEP 0.4)
+     Please send the rtlog lines of a few swipes — the elevator may report floor numbers in
+     "eventaddr" and use elevator event codes (150-155, 249-252), which I want to decode correctly.
+
+     Test matrix:
+       floors [1,3,5] → floors 1, 3, 5 work, 2 and 4 do not
+       timezoneId 2 (07:00-17:00) → test once inside, once outside the window
+       DELETE access (STEP 7.1) → no floor works, card still known
+
+
+---------------------------------------------------------------------
+ STEP 5 — REMOTE FLOOR RELEASE
+---------------------------------------------------------------------
+     POST /api/elevator/floors/release
+{
+  "sn": "WSQ2260800005",
+  "floors": [1],
+  "seconds": 5,
+  "bitOrder": "cvsecurity"
+}
+     Expected: CONTROL DEVICE 11000…0001 0105  (11 + 63 zeros + 1 + 01 + 05, without spaces) — same as CVSecurity.
+
+     IMPORTANT — check WHICH relay clicks. The CVSecurity log puts the selected floor at the RIGHT end,
+     the protocol document puts floor 1 at the LEFT end. Test:
+       floors [1]  bitOrder "cvsecurity"  → relay 1 clicks?   (expected, matches CVSecurity)
+       floors [2]  bitOrder "cvsecurity"  → relay 2 clicks?
+       floors [1]  bitOrder "document"    → which relay (if any)?
+     Tell me which floor you released in CVSecurity when the log was made, and the results above,
+     and I will fix the default.
+
+
+---------------------------------------------------------------------
+ STEP 6 — QUERY
+---------------------------------------------------------------------
+     POST /api/users/query              sn = WSQ2260800005
+     POST /api/cards/query              sn = WSQ2260800005   → cardno=1d0456
+     POST /api/elevator/access/query    sn = WSQ2260800005   → pin=1 ... authorizefloors=FFFF
+         (if it returns only NUL padding like userauthorize on the C3, Return=N is the row count)
+     POST /api/timerules/query          sn = WSQ2260800005
+     POST /api/tables/{table}/query     table = DoorParameters / DoorProperty / DevProperty  (relay setup)
+     Results: GET /api/commands/{id}?waitSeconds=15 → "queryData"
+
+
+---------------------------------------------------------------------
+ STEP 7 — DELETE
+---------------------------------------------------------------------
+7.1  Floor rights only:      DELETE /api/elevator/access/{pin}     pin = 1, sn = WSQ2260800005
+                              → DATA DELETE usereleauthorize Pin=1
+7.2  Everything of a user:   DELETE /api/users/{pin}/complete      pin = 1, sn = WSQ2260800005
+                              → DATA DELETE usereleauthorize Pin=1   (elevator detected from the registry;
+                                                                       force with elevator = true)
+                                DATA DELETE mulcarduser Pin=1
+                                DATA DELETE extuser Pin=1
+                                DATA DELETE user Pin=1
+7.3  Wipe like CVSecurity's "synchronize all": DELETE /api/users/all   confirm = true, elevator = true
+7.4  Check: repeat STEP 6; swipe → EVENT 27.
+
+
+---------------------------------------------------------------------
+ STEP 8 (ONLY FOR A NEW OR RESET CONTROLLER) — FLOOR RELAY SETUP
+---------------------------------------------------------------------
+     POST /api/elevator/setup
+{
+  "sn": "WSQ2260800005",
+  "floors": 16,
+  "relaySeconds": 5,
+  "validTimezoneId": 1,
+  "keepOpenTimezoneId": 0,
+  "negativeFloors": 0,
+  "replaceExisting": true
+}
+     Sends (like CVSecurity): DATA DELETE DoorProperty *, DoorProperty ID=1..16, DATA DELETE DoorParameters *,
+     16× DoorParameters (DoorDrivertime / DoorKeepOpenTimeZone / DoorValidTZ), SET OPTIONS EleNegativeFloorCount=0.
+     Reader / Wiegand configuration (ReaderProperty, ReaderParameters, WGFormat) is not part of this — the
+     controller keeps CVSecurity's settings; if ever needed, send those lines through POST /api/raw.

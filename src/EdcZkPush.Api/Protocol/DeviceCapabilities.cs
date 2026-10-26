@@ -87,6 +87,9 @@ public sealed class DeviceCapabilities
 
     public bool? SupportsDevIdField => Supports(AccFunBits.TableDevIdField);
 
+    /// <summary>Elevator controller (MachineType 4xx, e.g. 420, or elevator expansion board support).</summary>
+    public bool IsElevator => MachineType is >= 400 and < 500 || Supports(AccFunBits.ElevatorBoard) == true;
+
     /// <summary>AccSupportFunList[15]: AuthorizeDoorId is a door NUMBER (one row per door), not a bit mask.</summary>
     public bool? DoorIdIsSingleDoor => Supports(AccFunBits.DoorIdSingleDoor);
     public bool? SupportsTimeRuleValidity => Supports(AccFunBits.TimeRuleValidPeriod);
