@@ -22,6 +22,11 @@ string? token = null;
 
 void Check(bool ok, string what)
 {
+    if (!ok && Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true")
+    {
+        Console.WriteLine($"::error title=Self test::{what}");
+    }
+
     Console.ForegroundColor = ok ? ConsoleColor.Green : ConsoleColor.Red;
     Console.WriteLine($"{(ok ? "PASS" : "FAIL")}  {what}");
     Console.ResetColor();
@@ -204,7 +209,10 @@ ids.AddRange(queryIds);
 ids.AddRange(await Call(HttpMethod.Post, "/api/users/count", null, "count users"));
 ids.AddRange(await Call(HttpMethod.Delete, "/api/users/1001/complete", null, "delete user completely"));
 
-// Elevator (same wire format as captured from ZKBio CVSecurity → WSQ2260800005)
+// Elevator (same wire format as captured from ZKBio CVSecurity → WSQ2260800005).
+// Remove the manual DevID 190 stored above so the auto-detected DevProperty ID (7) is used again.
+var clearDevId = await http.PutAsync($"/api/devices/{sn}/devid", null);
+Check(clearDevId.IsSuccessStatusCode, "manual DevID override removed");
 ids.AddRange(await Call(HttpMethod.Put, "/api/elevator/access", new { pin = "1001", allFloors = true, floorCount = 16, timezoneId = 1 }, "elevator: all 16 floors"));
 ids.AddRange(await Call(HttpMethod.Put, "/api/elevator/access", new { pin = "1002", floors = new[] { 8, 9 }, timezoneId = 1 }, "elevator: floors 8+9"));
 ids.AddRange(await Call(HttpMethod.Post, "/api/elevator/floors/release", new { floors = new[] { 1 }, seconds = 5 }, "elevator: release floor 1"));
