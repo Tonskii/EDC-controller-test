@@ -8,6 +8,12 @@ public static class CapabilityReport
         yield return $"DEVICE: type={c.DeviceType} name={c.DeviceName} firmware={c.FirmwareVersion} push={c.PushVersion} " +
                      $"doors={c.LockCount} readers={c.ReaderCount} machineType={c.MachineType}";
 
+        if (c.MachineType is >= 400 and < 500 || c.Supports(AccFunBits.ElevatorBoard) == true)
+        {
+            yield return $"ELEVATOR CONTROLLER (MachineType={c.MachineType}): floor access via /api/elevator/access (table usereleauthorize), " +
+                         "users/cards/time rules via the normal endpoints.";
+        }
+
         if (!string.Equals(c.DeviceType, "acc", StringComparison.OrdinalIgnoreCase))
         {
             yield return $"WARNING: DeviceType='{c.DeviceType}' (expected 'acc' for an access controller).";

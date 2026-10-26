@@ -125,6 +125,7 @@ public static class AccFunBits
     public const int RemoteRegistration = 40;
     public const int ExpansionEx0808 = 47;
     public const int OsdpBoard = 49;
+    public const int ElevatorBoard = 52;
     public const int TimeRuleValidPeriod = 60;
     public const int NtpConfig = 61;
     public const int PermissionGroupValidity = 62;

@@ -162,7 +162,9 @@ public sealed class UsersController : ApiBase
         //   DATA UPDATE mulcarduser Pin\tCardNo=<lowercase hex>\tLossCardFlag=0\tCardType=0
         var useExt = Options.UseExtUser;
         var record = SecurityCommands.UserRecord(r.Pin, useExt ? "" : r.Name, r.Password, r.Group, start, end, cardInUser,
-            r.Privilege, r.SuperAuthorize, r.Disable ?? 0);
+            r.Privilege, r.SuperAuthorize,
+            // CVSecurity sends Disable=0 to the C3-400 Plus (reports DisableUserFunOn=1) but not to the elevator controller.
+            r.Disable ?? (caps.GetInt("DisableUserFunOn") == 0 || (caps.Raw.Count > 0 && caps.GetInt("DisableUserFunOn") == null) ? null : 0));
         yield return ($"Add/update user {r.Pin}", SecurityCommands.Update("user", new[] { record }));
 
         if (useExt)

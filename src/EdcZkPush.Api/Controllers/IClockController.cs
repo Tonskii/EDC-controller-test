@@ -171,7 +171,7 @@ public sealed class IClockController : ControllerBase
 
 
         if (_opt.AutoDetectDevId && !session.DevPropertyQueried && session.ConfigDownloadedAt != null &&
-            session.Capabilities?.SupportsDevIdField == true)
+            session.Capabilities?.SupportsDevIdField != false)
         {
             session.DevPropertyQueried = true;
             _queue.Enqueue(session.SerialNumber, "Auto: read DevProperty (detect DevID)", SecurityCommands.Query("DevProperty"));

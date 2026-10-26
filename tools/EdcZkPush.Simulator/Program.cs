@@ -49,7 +49,7 @@ var registryBody = string.Join(",",
     "MAC=00:17:61:12:34:56", "CommType=ethernet", "MaxPackageSize=2048000", "LockCount=4", "ReaderCount=8",
     "AuxInCount=4", "AuxOutCount=4", "MachineType=2", "~IsOnlyRFMachine=1", "~MaxUserCount=100000",
     "~MaxAttLogCount=500000", "IPAddress=192.168.1.201", "NetMask=255.255.255.0", "GATEIPAddress=0.0.0.0",
-    "DateFmtFunOn=1", "MulCardUserFunOn=1", "StringPinFunOn=0", "UserNameFunOn=1", "CmdFormat=0", "DevNSLevel=0",
+    "DateFmtFunOn=1", "DisableUserFunOn=1", "MulCardUserFunOn=1", "StringPinFunOn=0", "UserNameFunOn=1", "CmdFormat=0", "DevNSLevel=0",
     "WGRuleVer=2.0", "RemoteOpenDoorExFunOn=1",
     "AccSupportFunList=" + AccBits(67, 1, 2, 5, 7, 11, 15, 26, 33, 35, 40, 47, 49, 60, 61, 62),
     "MultiStageControlFunOn=0", "MasterControlOn=0", "SubControlOn=0", "IsSupportQRcode=1", "QRCodeEnable=1");
@@ -127,7 +127,7 @@ var loop = Task.Run(async () =>
                 else if (text.StartsWith("CONTROL DEVICE"))
                 {
                     cmdName = "CONTROL DEVICE";
-                    if (!Regex.IsMatch(text, @"^CONTROL DEVICE [0-9A-F]{8}$")) { ret = -620; }
+                    if (!Regex.IsMatch(text, @"^CONTROL DEVICE [0-9A-F]{8}([0-9A-F]{62})?$")) { ret = -620; }
                 }
                 else if (text.StartsWith("SET OPTIONS")) cmdName = "SET OPTIONS";
                 else if (text.StartsWith("REMOTE OPENDOOREX")) cmdName = "REMOTE OPENDOOREX";
@@ -204,6 +204,13 @@ ids.AddRange(queryIds);
 ids.AddRange(await Call(HttpMethod.Post, "/api/users/count", null, "count users"));
 ids.AddRange(await Call(HttpMethod.Delete, "/api/users/1001/complete", null, "delete user completely"));
 
+// Elevator (same wire format as captured from ZKBio CVSecurity → WSQ2260800005)
+ids.AddRange(await Call(HttpMethod.Put, "/api/elevator/access", new { pin = "1001", allFloors = true, floorCount = 16, timezoneId = 1 }, "elevator: all 16 floors"));
+ids.AddRange(await Call(HttpMethod.Put, "/api/elevator/access", new { pin = "1002", floors = new[] { 8, 9 }, timezoneId = 1 }, "elevator: floors 8+9"));
+ids.AddRange(await Call(HttpMethod.Post, "/api/elevator/floors/release", new { floors = new[] { 1 }, seconds = 5 }, "elevator: release floor 1"));
+ids.AddRange(await Call(HttpMethod.Post, "/api/elevator/setup", new { floors = 16 }, "elevator: setup 16 floor relays"));
+ids.AddRange(await Call(HttpMethod.Delete, "/api/elevator/access/1002", null, "elevator: delete floor access"));
+
 var preview = await http.PostAsJsonAsync("/api/users?preview=true", new { pin = "9", name = "Preview" });
 var previewText = await preview.Content.ReadAsStringAsync();
 Check(preview.IsSuccessStatusCode && previewText.Contains("C:<id>:DATA UPDATE user"), "preview returns wire text without queuing");
@@ -244,6 +251,11 @@ lock (seenWire)
     Check(seenWire.Any(w => w.EndsWith("CONTROL DEVICE 0103010F")), "open door 3 for 15 s uses hex 0F");
     Check(seenWire.Any(w => w.Contains("REMOTE OPENDOOREX id=1\topentime=5\tpin=1001")), "REMOTE OPENDOOREX format");
     Check(seenWire.Any(w => Regex.IsMatch(w, @"SET OPTIONS DateTime=\d+$")), "time sync uses SET OPTIONS DateTime=<seconds>");
+    Check(seenWire.Any(w => w.EndsWith("DATA UPDATE usereleauthorize Pin=1001\tAuthorizeTimezoneId=1\tAuthorizeFloorId=0\tAuthorizeFloors=FFFF\tDevID=7\tStartTime=0\tEndTime=0")), "elevator all floors = FFFF like CVSecurity");
+    Check(seenWire.Any(w => w.EndsWith("AuthorizeFloors=180\tDevID=7\tStartTime=0\tEndTime=0")), "elevator floors 8+9 = 180 (protocol document example)");
+    Check(seenWire.Any(w => w.EndsWith("CONTROL DEVICE 11" + new string('0', 63) + "10105")), "floor 1 release identical to CVSecurity");
+    Check(seenWire.Any(w => w.EndsWith("DATA UPDATE DoorParameters ID=16\tName=DoorDrivertime\tValue=5\tDevID=7\nID=16\tName=DoorKeepOpenTimeZone\tValue=0\tDevID=7\nID=16\tName=DoorValidTZ\tValue=1\tDevID=7")), "elevator relay parameters like CVSecurity");
+    Check(seenWire.Any(w => w.EndsWith("SET OPTIONS EleNegativeFloorCount=0")), "negative floors option");
     Check(seenWire.Any(w => w.Contains("DATA UPDATE holiday Holiday=20261225\tHolidayType=1\tLoop=1")), "holiday format");
 }
 

@@ -58,7 +58,7 @@ public static class SecurityCommands
     /// CardNo= Pin= Password= Group= StartTime= EndTime= Name= SuperAuthorize= Disable= (Privilege only if given).
     /// </summary>
     public static string UserRecord(string pin, string? name, string? password, int group, string startTime, string endTime,
-        string? cardNo, int? privilege, int superAuthorize = 0, int disable = 0)
+        string? cardNo, int? privilege, int superAuthorize = 0, int? disable = 0)
     {
         var fields = new List<(string, object?)>
         {
@@ -76,7 +76,10 @@ public static class SecurityCommands
         }
 
         fields.Add(("SuperAuthorize", superAuthorize));
-        fields.Add(("Disable", disable));
+        if (disable.HasValue)
+        {
+            fields.Add(("Disable", disable.Value));
+        }
         return Fields(fields.ToArray());
     }
 
